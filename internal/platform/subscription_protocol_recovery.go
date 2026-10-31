@@ -22,6 +22,9 @@ func (a *App) checkProtocolPayment(w http.ResponseWriter, r *http.Request) {
 		fail(w, 429, "核实过于频繁，请稍后重试")
 		return
 	}
+	if action && a.openPreparedPaymentAction(w, r) {
+		return
+	}
 	tx, err := a.DB.Begin(ctx)
 	if err != nil {
 		paymentError(w, err)

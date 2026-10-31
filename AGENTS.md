@@ -1,3 +1,7 @@
+# 2026-10-31 晚间：新新按原包自动准备验证入口
+
+用户要求新提链＋新付款整套遵循桌面 cs-live-source.zip，保留既有代理/IP、随机正式账单及逐套餐长短链规则。遇 action_required 时按原包 TLS-enabled Pay 自动准备最长十分钟入口，同一任务等待操作者打开；原包页面点击继续后调用 Stripe SDK，结束后只 Recover 原交易。不要把“自动生成入口”改成直接终止任务或自动完成所有人工验证，也不要宣称原 CLI 会自动打开浏览器。网站用管理员私有浏览器窗口承接原本机入口，保持原单代理和出口检查；重复打开不创建第二个付款/验证任务，超时/关闭保留原单，发布不重放历史订单。详见 docs/cslive-reference-alignment-20261031.md；发布状态以运维记录为准。
+
 # 2026-10-31 新增第四套：新提链＋旧浏览器付款
 
 用户最新要求新增 `cslive_browser` 完整订阅流程，并测试后推送 GitHub、更新正式 xufu-app。保持单一 payment.subscription_flow 选择；新增选项用 cs-live CreateCheckout 生成原链接，再由既有官方浏览器付款，后续沿用旧订阅生效核实、授权刷新和续费规则。checkout_runs.flow=cslive、payment_runs.executor=browser 且无 subscription_protocol 记录共同固定此路径；历史订单不因后台选择变化改路，既有三套不变。

@@ -25,7 +25,8 @@ var traceCodes = map[string]string{
 	"checkout_runtime_unavailable": "提链运行环境缺少 curl",
 	"subscription_absent":          "当前账号尚无订阅，属于新开通前的正常查询结果",
 	"payment_pending":              "原付款尚未取得最终结果，保留原交易待核实",
-	"verification_continuing":      "付款需要后续验证，系统将自动接续处理，无需人工发起",
+	"verification_continuing":      "原交易需要后续验证，实际接续情况以官方付款验证记录为准",
+	"verification_ready":           "原付款验证入口已就绪，请在有效期内打开并点击继续验证",
 	"action_guard_overloaded":      "验证资源检查数量异常，已停止本轮验证并保留原交易",
 	"automatic_verification":       "服务端自动接续原交易的官方验证", "action_timeout": "官方验证在有效期内未完成，原交易保留待核实",
 	"action_runtime_unavailable": "验证窗口暂不可用，原交易保留待核实", "action_interrupted": "验证窗口已结束，原交易仍需核实",
@@ -95,7 +96,7 @@ func (a *App) paymentTraceDetails(ctx context.Context, id string) []M {
 		// Old progress rows described an intermediate SDK handoff as a request
 		// for manual verification. Correct presentation without rewriting audit data.
 		if code == "verification_required" && (str(row, "phase") == "confirming" || str(row, "phase") == "checking") {
-			description = "原交易要求后续验证；自动接续情况见后续官方付款验证记录"
+			description = "原交易要求后续验证；请查看官方付款验证入口及后续记录"
 		}
 		row["description"] = description
 	}

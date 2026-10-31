@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,8 @@ type paymentAction struct {
 	process                actionProcess
 	cancel                 context.CancelFunc
 	automatic              bool
+	ctx                    context.Context
+	opened                 chan struct{}
 }
 type nodeAction struct {
 	events chan actionEvent
@@ -150,13 +153,58 @@ func (a *App) actionFor(r *http.Request) *paymentAction {
 	a.paymentMu.Lock()
 	defer a.paymentMu.Unlock()
 	v := a.paymentActions[r.PathValue("id")]
-	if v == nil || v.actor != current(r).ID {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.actor != current(r).ID {
 		return nil
 	}
 	return v
 }
+
+// Claim the already prepared entry without starting a second worker or changing
+// the saved payment. Only its first administrator can view/control the browser.
+func (a *App) openPreparedPaymentAction(w http.ResponseWriter, r *http.Request) bool {
+	a.paymentMu.Lock()
+	defer a.paymentMu.Unlock()
+	v := a.paymentActions[r.PathValue("id")]
+	if v == nil || v.opened == nil || v.ctx == nil {
+		return false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !v.expires.After(time.Now()) || v.state == "finished" || v.state == "closed" || v.ctx.Err() != nil {
+		return false
+	}
+	if v.actor != "" && v.actor != current(r).ID {
+		fail(w, 409, "另一位管理员正在处理原付款验证")
+		return true
+	}
+	if v.actor == "" {
+		v.actor, v.state = current(r).ID, "preparing"
+		close(v.opened)
+	}
+	out(w, 202, M{"accepted": true, "action_id": v.id})
+	return true
+}
 func (a *App) actionView(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	a.paymentMu.Lock()
+	entry := a.paymentActions[r.PathValue("id")]
+	if entry != nil {
+		entry.mu.Lock()
+		available := entry.actor == "" && entry.state == "available" && entry.expires.After(time.Now()) && entry.ctx != nil && entry.ctx.Err() == nil
+		expiry := entry.expires
+		entry.mu.Unlock()
+		if available {
+			a.paymentMu.Unlock()
+			out(w, 200, M{"state": "available", "expires_at": expiry})
+			return
+		}
+	}
+	a.paymentMu.Unlock()
 	v := a.actionFor(r)
 	if v == nil {
 		out(w, 200, M{"state": "idle"})
@@ -226,6 +274,13 @@ func (a *App) actionInput(w http.ResponseWriter, r *http.Request) {
 	out(w, 200, M{"ok": true})
 }
 
+var actionPublishableKey = regexp.MustCompile(`^pk_[A-Za-z0-9_]+$`)
+var actionClientSecret = regexp.MustCompile(`^pi_[A-Za-z0-9]+_secret_[A-Za-z0-9]+$`)
+
+func validPaymentActionCheckpoint(cp cslive.Checkpoint) bool {
+	return cp.Payment == "action_required" && paymentIntentID.MatchString(cp.PaymentIntentID) && strings.HasPrefix(cp.ClientSecret, cp.PaymentIntentID+"_secret_") && actionClientSecret.MatchString(cp.ClientSecret) && actionPublishableKey.MatchString(cp.PublishableKey)
+}
+
 func (r *protocolRun) runPaymentAction(cp cslive.Checkpoint, v *paymentAction) (resultErr error) {
 	started := time.Now()
 	code := ""
@@ -241,7 +296,7 @@ func (r *protocolRun) runPaymentAction(cp cslive.Checkpoint, v *paymentAction) (
 		v.process, v.frame = nil, nil
 		v.mu.Unlock()
 	}()
-	if cp.Payment != "action_required" || !paymentIntentID.MatchString(cp.PaymentIntentID) || !strings.HasPrefix(cp.ClientSecret, cp.PaymentIntentID+"_secret_") || cp.PublishableKey == "" {
+	if !validPaymentActionCheckpoint(cp) {
 		return cslive.Failure("payment_intent_state_unavailable")
 	}
 	var enc string
@@ -259,7 +314,11 @@ func (r *protocolRun) runPaymentAction(cp cslive.Checkpoint, v *paymentAction) (
 	if _, err = r.a.orderExitIP(r.ctx, r.id, r.guardProxy, true); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithDeadline(r.ctx, minTime(expires, time.Now().Add(10*time.Minute)))
+	deadline := minTime(expires, time.Now().Add(10*time.Minute))
+	if !v.expires.IsZero() {
+		deadline = minTime(deadline, v.expires)
+	}
+	ctx, cancel := context.WithDeadline(r.ctx, deadline)
 	defer cancel()
 	normalized, err := normalizeProxy(endpoint)
 	if err != nil {

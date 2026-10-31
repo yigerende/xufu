@@ -15,6 +15,12 @@ for(const mode of ['automatic','interactive','wrong_intent','not_required','sdk_
     return true
    },
    ready:async page=>{
+    if(mode!=='automatic'){
+     assert.deepEqual(await page.evaluate(()=>window.sdkCalls),[])
+     assert.equal(events.some(e=>e.type==='result'),false)
+     const start=await page.locator('#start').boundingBox()
+     await handler({type:'click',x:start.x+start.width/2,y:start.y+start.height/2})
+    }
     if(mode==='interactive'){
      await page.locator('#fixture-interaction').waitFor()
      assert.equal(events.some(e=>e.type==='result'),false)
@@ -62,6 +68,10 @@ test('every external request needs the original-session guard; denial never fall
   route:async route=>{
    if(route.request().url()!=='https://js.stripe.com/v3/')return false
    await route.fulfill({contentType:'application/javascript',body:`window.Stripe=()=>({retrievePaymentIntent:async()=>({paymentIntent:{id:'pi_Fixture',status:'requires_action'}}),handleNextAction:async()=>{try{await fetch('https://api.stripe.com/offline-guard-fixture');throw Error('unguarded request')}catch{}return {error:{code:'api_connection_error'}}}})`});return true
+  },
+  ready:async page=>{
+   const start=await page.locator('#start').boundingBox()
+   await handler({type:'click',x:start.x+start.width/2,y:start.y+start.height/2})
   }
  })
  assert.equal(guarded,1)

@@ -45,7 +45,7 @@ func TestProtocolCustomCheckoutLinkAndLegacyFallback(t *testing.T) {
 	r.finish(cslive.Result{Checkpoint: cp})
 }
 
-func TestProtocolMonitorDistinguishesNormalAbsentAndAutoHandoff(t *testing.T) {
+func TestProtocolMonitorDistinguishesNormalAbsentAndVerificationRequired(t *testing.T) {
 	h, r, cp := nativeFixture(t, false)
 	if h.a.paymentDetails(r.ctx, r.id)["automatic_running"] != true {
 		t.Fatal("active worker not marked automatic")
@@ -63,7 +63,7 @@ func TestProtocolMonitorDistinguishesNormalAbsentAndAutoHandoff(t *testing.T) {
 	r.event(map[string]any{"event": "payment_diagnostic", "paymentState": "action_required"})
 	h.a.saveProviderDiagnostic(<-h.a.providerDiagnostics)
 	rows := h.a.paymentTraceDetails(r.ctx, r.id)
-	var absent, failed, automatic bool
+	var absent, failed, verification bool
 	for _, row := range rows {
 		if row["code"] == "subscription_absent" {
 			absent = row["state"] == "completed"
@@ -71,11 +71,11 @@ func TestProtocolMonitorDistinguishesNormalAbsentAndAutoHandoff(t *testing.T) {
 		if row["code"] == "invalid_response" {
 			failed = row["state"] == "failed"
 		}
-		if row["code"] == "verification_continuing" {
-			automatic = row["state"] == "running"
+		if row["code"] == "verification_required" {
+			verification = row["state"] == "review"
 		}
 	}
-	if !absent || !failed || !automatic {
+	if !absent || !failed || !verification {
 		t.Fatal("incorrect monitoring states")
 	}
 	secret := "pi_private_secret_value"

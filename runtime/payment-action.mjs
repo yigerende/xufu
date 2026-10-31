@@ -103,9 +103,9 @@ export async function runAction(input,emit,commands,fixture={}) {
     progress('page_loading')
     heartbeat=setInterval(()=>{if(!finished&&!closed){network.pending();emit({type:'progress',stage,elapsed_ms:Date.now()-stageAt,waiting:true,details:network.summary()})}},30000)
     await page.goto(base,{waitUntil:'load',timeout:45000})
-    // Same retrievePaymentIntent -> identity/status check -> handleNextAction
-    // as the supplied page. Only its initial continue button is automated.
-    await page.locator('#start').click({timeout:10000,noWaitAfter:true})
+    // The supplied page starts on the operator's click. Keep the legacy private
+    // automatic mode for compatibility; normal entries preserve that click.
+    if(input.automatic)await page.locator('#start').click({timeout:10000,noWaitAfter:true})
     emit({type:'ready'})
     if(!input.automatic)screenTimer=setInterval(async()=>{
       if(frameBusy||finished||closed)return

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import {onUnmounted,ref} from 'vue'
+import {onMounted,onUnmounted,ref} from 'vue'
 import {api,type Row} from '../lib'
 const props=defineProps<{orderId:string;canStart:boolean}>()
 const emit=defineEmits<{refresh:[]}>()
 const view=ref<Row>({state:'idle'}),open=ref(false),busy=ref(false),error=ref(''),text=ref('')
 let timer:ReturnType<typeof setTimeout>|undefined,disposed=false,reading=false
-const messages:Record<string,string>={preparing:'正在准备官方验证',verifying:'正在进行官方验证；出现交互提示时可在窗口内完成',checking:'验证交互已结束，正在核实原交易',finished:'本次验证处理已结束，请查看原订单结果',closed:'验证窗口已关闭，原交易保留待核实'}
+const messages:Record<string,string>={available:'原付款验证入口已就绪，有效期最长十分钟',preparing:'正在打开官方验证页面',verifying:'请点击窗口内的“继续验证原付款”，并按官方提示操作',checking:'验证交互已结束，正在核实原交易',finished:'本次验证处理已结束，请查看原订单结果',closed:'验证窗口已关闭，原交易保留待核实'}
+onMounted(async()=>{try{const current=await api(`/admin/orders/${props.orderId}/payment/action`);if(!disposed)view.value=current}catch(e){if(!disposed)error.value=(e as Error).message}})
 async function poll(){
  if(disposed||!open.value||reading)return
  clearTimeout(timer);reading=true
@@ -28,11 +29,12 @@ onUnmounted(()=>{disposed=true;clearTimeout(timer);text.value=''})
 </script>
 <template><section class="payment-action">
  <p class="alert danger" v-if="error" role="alert">{{error}}</p>
- <button v-if="!open" type="button" class="btn primary" :disabled="busy||!canStart" @click="start">{{busy?'准备中…':'继续原付款验证'}}</button>
+ <p v-if="!open&&view.state==='available'" role="status">{{messages.available}}。打开后在官方页面点击继续。</p>
+ <button v-if="!open" type="button" class="btn primary" :disabled="busy||(!canStart&&view.state!=='available')" @click="start">{{busy?'准备中…':'继续原付款验证'}}</button>
  <div v-if="open" class="verification-window">
   <div class="verification-heading"><strong>官方付款验证</strong><button type="button" class="text-btn" @click="close">结束验证窗口</button></div>
   <p role="status">{{messages[view.state]||'正在读取验证状态'}}</p>
-  <p class="small muted">官方 SDK 先处理原交易；需要输入验证码或确认时，请按窗口提示操作。交互结束后会自动核实付款，并继续订阅及续费设置。</p>
+  <p class="small muted">点击窗口内的继续按钮后，官方 SDK 开始处理原交易；需要输入验证码或确认时，请按窗口提示操作。交互结束后会自动核实付款，并继续订阅及续费设置。</p>
   <div v-if="view.image" class="verification-screen" tabindex="0" aria-label="官方验证交互窗口" @keydown="key"><img :src="view.image" alt="原交易的官方验证页面" draggable="false" @click="click"/></div>
   <div v-if="view.image" class="verification-input"><input v-model="text" type="password" autocomplete="off" maxlength="128" placeholder="需要时输入验证内容" @keydown.enter.prevent="enterText"/><button type="button" class="btn secondary" @click="enterText">输入</button><button type="button" class="text-btn" @click="send({type:'key',key:'Tab'})">切换输入框</button><button type="button" class="text-btn" @click="send({type:'scroll',y:450})">向下滚动</button><button type="button" class="text-btn" @click="send({type:'scroll',y:-450})">向上滚动</button></div>
  </div>

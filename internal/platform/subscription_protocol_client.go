@@ -158,7 +158,7 @@ func (r *protocolRun) progress(p cslive.Progress) {
 	}
 	code := protocolPublicCode(p.Code)
 	if phase == "confirming" && p.Code == "action_required" {
-		state, code = "running", "verification_continuing"
+		state, code = "review", "verification_required"
 	}
 	r.a.paymentTrace(r.ctx, r.id, phase, state, code, elapsed)
 }
@@ -195,7 +195,7 @@ func (r *protocolRun) event(event map[string]any) {
 		code = "subscription_absent"
 	}
 	if details["payment_state"] == "action_required" {
-		code = "verification_continuing"
+		code = "verification_required"
 	}
 	r.a.enqueueDiagnostic(providerDiagnostic{Order: r.id, Phase: phase, Code: code, Status: int(protocolEventNumber(event["status"])), RequestID: requestID,
 		Elapsed: time.Duration(protocolEventNumber(event["durationMs"])) * time.Millisecond, At: time.Now().UTC(), Details: safeDiagnosticDetails(details)})
