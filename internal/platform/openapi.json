@@ -3,7 +3,7 @@
   "info": {
     "title": "序付 XUPAY 开发者 API",
     "version": "1.6.5",
-    "description": "序付客户 API：查询余额、会员权益和服务费报价，检查账号 Session，创建订阅或结账链接订单，并查询付款、生效和续费结果。仅可访问当前 API 密钥所属账户的数据。平台服务费使用整数分 R，银行卡订阅金额使用对应币种最小单位。"
+    "description": "序付客户 API：查询余额、会员权益和服务费报价，检查账号 Session，创建订阅或结账链接订单，并查询付款、生效和续费结果。仅可访问当前 API 密钥所属账户的数据。银行卡订阅金额使用对应币种最小单位。"
   },
   "servers": [
     {
@@ -202,7 +202,7 @@
                     },
                     "unit": {
                       "const": "cent_R",
-                      "description": "服务费金额单位，cent_R 表示分 R，100 分 = 1 R。"
+                      "description": "服务费金额单位，cent_R 表示分 R。"
                     },
                     "countries": {
                       "type": "array",
@@ -434,7 +434,7 @@
                           "spent": {
                             "type": "integer",
                             "format": "int64",
-                            "description": "金额单位为分，100 分 = 1 R"
+                            "description": "金额单位为分"
                           },
                           "updated_at": {
                             "type": "string",
@@ -449,7 +449,7 @@
                     },
                     "unit": {
                       "const": "cent_R",
-                      "description": "消费金额单位为分 R，100 分 = 1 R。"
+                      "description": "消费金额单位为分 R。"
                     },
                     "basis": {
                       "const": "settled_service_spend",
@@ -633,12 +633,12 @@
                     "fee": {
                       "type": "integer",
                       "format": "int64",
-                      "description": "金额单位为分，100 分 = 1 R"
+                      "description": "金额单位为分"
                     },
                     "standard": {
                       "type": "integer",
                       "format": "int64",
-                      "description": "金额单位为分，100 分 = 1 R"
+                      "description": "金额单位为分"
                     },
                     "membership": {
                       "$ref": "#/components/schemas/Membership"
@@ -982,7 +982,7 @@
                     "amount": {
                       "type": "integer",
                       "format": "int64",
-                      "description": "金额单位为分，100 分 = 1 R"
+                      "description": "金额单位为分"
                     }
                   },
                   "required": [],
@@ -2900,7 +2900,7 @@
           },
           "unit": {
             "const": "cent_R",
-            "description": "服务费金额单位，cent_R 表示分 R，100 分 = 1 R。"
+            "description": "服务费金额单位，cent_R 表示分 R。"
           },
           "membership": {
             "$ref": "#/components/schemas/Membership"
