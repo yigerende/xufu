@@ -76,7 +76,7 @@ for(const mode of ['success','card_request_ip_changed','confirm_request_ip_chang
  ${mode==='slow_fields'?"setTimeout(()=>document.querySelector('#cardNumber').hidden=false,16000);":''}
  fetch(base+'/init',{method:'POST'});
  ${mode==='card_request_ip_changed'?"document.querySelector('#cardCvc').addEventListener('blur',()=>fetch('https://api.stripe.com/v1/payment_methods',{method:'POST'}));":''}
- document.querySelector('#billingPostalCode').addEventListener('blur',()=>fetch(base,{method:'POST'}));
+ document.querySelector('#billingPostalCode').addEventListener('blur',()=>fetch(base,{method:'POST',body:new URLSearchParams({'tax_region[country]':'US','tax_region[line1]':'100 Test Street','tax_region[city]':'Portland','tax_region[state]':'OR','tax_region[postal_code]':'97205'})}));
  document.querySelector('button').onclick=async()=>{${mode==='checkout_resources'?`await Promise.all(${JSON.stringify(checkoutResourceHosts)}.map(host=>fetch('https://'+host+'/required-checkout-resource')));`:''}await fetch(base+'/confirm',{method:'POST',body:new URLSearchParams({expected_amount:'1500'})});${['sdk_poll_success','foreign_poll'].includes(mode)?"await new Promise(r=>setTimeout(r,400));await fetch('https://api.stripe.com/v1/payment_intents/pi_QA123/verify_challenge',{method:'POST',body:'offline-test'});await fetch(base+'/poll');":''}};
  </script></body></html>`
  const deps={exitIP:async()=>{

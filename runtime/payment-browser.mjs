@@ -7,6 +7,7 @@ import {isIP} from 'node:net'
 import {customIdentity,loginCookies,CustomPayment} from './payment-custom.mjs'
 import {HostedApproval} from './payment-hosted-approval.mjs'
 import {observeMerchantPage} from './payment-page-diagnostics.mjs'
+import {HostedQuote} from './payment-hosted-quote.mjs'
 
 const currencies = new Set(['php','usd','jpy','sgd','gbp','egp','try'])
 export function checkoutIdentity(raw) {
@@ -87,6 +88,8 @@ export async function run(input, commands, emit, dependencies={}) {
     if(dependencies.signal?.aborted)throw Error('cancelled')
     const id=checkoutIdentity(input.url)
     const identity=customIdentity(input.url),custom=identity?new CustomPayment(identity):null
+    const hostedQuote=custom?null:new HostedQuote(id,input.billing)
+    const quoteMatches=()=>!!quote&&!!latest&&latest.taxReady&&latest.amount===quote.amount&&latest.currency===quote.currency&&(!hostedQuote||hostedQuote.current(latest))
     hosted=custom?null:new HostedApproval(id,input.resume_approval===true)
     if(input.mode==='check')quote=input.saved_quote
     if(input.resume_approval){sent=true;quote=input.saved_quote}
@@ -142,6 +145,7 @@ export async function run(input, commands, emit, dependencies={}) {
       const req=route.request(), u=new URL(req.url())
       if(Date.now()>=input.proxy_expires_at){blocked='proxy_session_expired';return route.abort()}
       if(u.protocol!=='https:' || !allowedHost(u.hostname) || u.username || u.password || (u.port&&u.port!=='443')) {pageDiagnostics?.blocked(req);return route.abort()}
+      hostedQuote?.start(req)
       // SDK tokenization may start while fields are being filled. Check the
       // original exit before allowing card data to leave this browser.
       if(req.method()==='POST'&&u.hostname==='api.stripe.com'&&/^\/v1\/(payment_methods|confirmation_tokens|tokens)$/.test(u.pathname)) {
@@ -174,16 +178,20 @@ export async function run(input, commands, emit, dependencies={}) {
           sent=true;emit({type:'submitted'})
         }
       } else if(req.method()==='POST' && /\/(confirm|pay|capture)$/.test(u.pathname)) {
+        await observations
         if(input.mode==='check'||!permit||sent) {blocked='duplicate_blocked';return route.abort()}
-        if(!latest || latest.amount!==quote.amount||latest.currency!==quote.currency||!latest.taxReady||!confirmMatches(req.url(),new URLSearchParams(req.postData()||''),id,quote)) {blocked='amount_changed';return route.abort()}
+        if(!quoteMatches()||!confirmMatches(req.url(),new URLSearchParams(req.postData()||''),id,quote)) {blocked='amount_changed';return route.abort()}
         try{await checkExit()}catch(e){blocked=e.message;return route.abort()}
+        await observations
+        if(!permit||sent) {blocked='duplicate_blocked';return route.abort()}
+        if(!quoteMatches()) {blocked='amount_changed';return route.abort()}
         sent=true
         emit({type:'submitted'})
       }
       return dependencies.route ? dependencies.route(route) : route.continue()
     })
     const page=await ctx.newPage()
-    page.on('requestfailed',req=>{if(['api.stripe.com','js.stripe.com'].includes(new URL(req.url()).hostname)&&/TUNNEL|PROXY_CONNECTION/.test(req.failure()?.errorText||''))networkFailed=true})
+    ctx.on('requestfailed',req=>{hostedQuote?.failed(req);if(['api.stripe.com','js.stripe.com'].includes(new URL(req.url()).hostname)&&/TUNNEL|PROXY_CONNECTION/.test(req.failure()?.errorText||''))networkFailed=true})
     ctx.on('response',res=>{observations=observations.then(async()=>{
       const u=new URL(res.url())
       if(hosted&&hosted.started&&hosted.matches(res.request())) {
@@ -202,16 +210,19 @@ export async function run(input, commands, emit, dependencies={}) {
       if(!related&&u.pathname!=='/v1/payment_methods')return
       const body=await res.json().catch(()=>null)
       const headers=res.headers(),requestID=headers['request-id']||headers['x-request-id']||''
-      const details={response_kind:body?'json':'other'}
+      const kind=u.pathname==='/v1/payment_methods'?'payment_method_create':u.pathname.endsWith('/confirm')?'payment_confirm':u.pathname.endsWith('/init')?'checkout_initialize':res.request().method()==='POST'&&u.pathname===`/v1/payment_pages/${id}`?'billing_update':'payment_read'
+      const phase=kind==='payment_confirm'?'confirming':kind==='payment_method_create'?'card_prepare':sent?'checking':'pricing'
+      const details={response_kind:body?'json':'other',request_kind:kind}
       for(const key of ['code','decline_code'])if(safePaymentCodes.has(body?.error?.[key]))details[key==='code'?'provider_code':key]=body.error[key]
       const timing=res.request().timing(),elapsed=Number.isFinite(timing.responseEnd)&&timing.responseEnd>=0?Math.round(timing.responseEnd):0
-      emit({type:'diagnostic',phase:u.pathname.endsWith('/confirm')?'confirming':quote?'checking':'pricing',http_status:res.status(),request_id:/^req_[A-Za-z0-9]{8,80}$/.test(requestID)?requestID:'',code:res.status()>=400?'request_rejected':'',elapsed_ms:elapsed,diagnostics:details})
+      emit({type:'diagnostic',phase,http_status:res.status(),request_id:/^req_[A-Za-z0-9]{8,80}$/.test(requestID)?requestID:'',code:res.status()>=400?'request_rejected':'',elapsed_ms:elapsed,diagnostics:details})
       if(!related)return
-      for(const diagnostics of paymentDiagnostics(body))emit({type:'diagnostic',phase:quote?'checking':'pricing',http_status:res.status(),diagnostics})
+      for(const diagnostics of paymentDiagnostics(body))emit({type:'diagnostic',phase,http_status:res.status(),diagnostics})
       if(u.pathname===`/v1/payment_pages/${id}/confirm`&&res.status()===402&&body?.error?.type==='card_error'&&['card_declined','expired_card','incorrect_cvc','incorrect_number'].includes(body.error.code)&&(!body.error.payment_intent||body.error.payment_intent.status==='requires_payment_method'))declined=true
-      if(res.status()!==200)return
+      if(res.status()!==200){hostedQuote?.observe(res.request(),res.status(),null);return}
       const poll=u.pathname===`/v1/payment_pages/${id}/poll`
       const s=poll?hostedPollSnapshot(body,id,pageID,latest,quote):snapshot(body,id)
+      hostedQuote?.observe(res.request(),res.status(),s)
       hosted?.observe(body,s)
       if(s&&!latest?.paid){if(!poll)pageID=body.id;latest=s;changedAt=Date.now();responseCount++}
     }).catch(()=>{})})
@@ -285,20 +296,26 @@ export async function run(input, commands, emit, dependencies={}) {
     await field(['#billingPostalCode','input[name="billingPostalCode"]','input[autocomplete="billing postal-code"]','input[name="postalCode"]','input[autocomplete$=" postal-code"]'],input.billing.postal_code)
     stage('pricing')
     const quoteUntil=Date.now()+input.prepare_seconds*1000
+    const quoteReady=()=>latest?.taxReady&&latest.open&&(hostedQuote?hostedQuote.ready(latest):responseCount>beforeAddress&&Date.now()-changedAt>1500)
     while(Date.now()<quoteUntil) {
+      await observations
       if(latest?.paid) return done('review','already_paid')
-      if(latest?.taxReady&&latest.open&&responseCount>beforeAddress&&Date.now()-changedAt>1500) break
+      if(quoteReady()) break
       await pause(250)
     }
-    if(!latest?.taxReady||!latest.open||responseCount<=beforeAddress) throw Error('quote_unavailable')
+    await observations
+    if(!quoteReady()) throw Error('quote_unavailable')
     quote={amount:latest.amount,currency:latest.currency}
     emit({type:'quote',...quote})
     const command=await Promise.race([commands.next(),new Promise(resolve=>{quoteTimer=setTimeout(()=>resolve({value:{type:'expired'}}),input.quote_seconds*1000)})])
     clearTimeout(quoteTimer)
     if(command.value?.type!=='confirm') return done('cancelled','quote_expired')
-    if(!latest.taxReady||latest.amount!==quote.amount||latest.currency!==quote.currency) return done('failed','amount_changed')
+    await observations
+    if(!quoteMatches()) return done('failed','amount_changed')
     stage('network_check')
     await checkExit()
+    await observations
+    if(!quoteMatches()) return done('failed','amount_changed')
     stage('network_verified')
     permit=true
     stage('confirming')
