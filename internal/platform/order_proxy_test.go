@@ -41,6 +41,35 @@ func TestIPRoyalOrderSession(t *testing.T) {
 	}
 }
 
+func TestNonIPRoyalOrderProxyPreservesCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, normalized string
+	}{
+		{"http", "http://user:password@proxy.example:8080", "http://user:password@proxy.example:8080"},
+		{"https", "https://user%40mail:pass%3Aword@proxy.example:443", "https://user%40mail:pass%3Aword@proxy.example:443"},
+		{"socks5", "socks5://user:password@proxy.example:1080", "socks5://user:password@proxy.example:1080"},
+		{"socks5h", "socks5h://user:password@proxy.example:1080", "socks5h://user:password@proxy.example:1080"},
+		{"without_auth", "http://proxy.example:8080", "http://proxy.example:8080"},
+		{"static_iproyal", "http://u:p@static.iproyal.com:80", "http://u:p@static.iproyal.com:80"},
+		{"similar_hostname", "http://u:p@geo.iproyal.com.example:80", "http://u:p@geo.iproyal.com.example:80"},
+		{"literal_password_options", "http://u:secret_session-original_lifetime-not-a-duration@proxy.example:80", "http://u:secret_session-original_lifetime-not-a-duration@proxy.example:80"},
+		{"compact_format", "proxy.example:8080:user:pass:word", "http://user:pass%3Aword@proxy.example:8080"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// New orders must not randomize static or independently managed credentials.
+			for i := 0; i < 2; i++ {
+				got, _, err := prepareOrderProxy(tc.raw, "PH")
+				if err != nil {
+					t.Fatal("ordinary proxy required supplier session options", err)
+				}
+				if got != tc.normalized {
+					t.Fatal("ordinary proxy credentials or endpoint were rewritten")
+				}
+			}
+		})
+	}
+}
+
 func TestOrderProxyRetryKeepsSessionWithoutIPComparison(t *testing.T) {
 	h := setupTest(t)
 	ctx := context.Background()

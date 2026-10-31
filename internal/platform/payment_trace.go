@@ -8,6 +8,7 @@ import (
 )
 
 var paymentPhases = map[string]string{
+	"card_prepare":    "准备银行卡付款",
 	"verification":    "官方付款验证",
 	"session_refresh": "刷新账号授权", "account_check": "在线核对账号", "activation": "核实订阅生效",
 	"accepted": "申请受理与资料校验", "queue": "等待办理资源", "funds": "服务费处理", "complete": "订阅流程结束",
@@ -17,6 +18,8 @@ var paymentPhases = map[string]string{
 	"result": "付款处理结果", "restart": "重建会话与结账信息", "renewal": "取消自动续费",
 }
 var traceCodes = map[string]string{
+	"exit_ip_recorded":             "已采集提链时的出口 IP",
+	"exit_ip_matched":              "付款前出口 IP 与提链记录一致",
 	"hosted_url_missing":           "未取得真实结账长链，已停止继续办理",
 	"hosted_url_invalid":           "结账长链校验未通过，已停止继续办理",
 	"checkout_runtime_unavailable": "提链运行环境缺少 curl",

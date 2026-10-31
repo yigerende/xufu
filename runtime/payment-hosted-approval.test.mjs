@@ -22,7 +22,7 @@ for(const mode of ['success','separate_verify','resume','readonly','duplicate','
  document.querySelector('#billingPostalCode').onblur=()=>fetch('${base}',{method:'POST'});
  document.querySelector('button').onclick=()=>fetch('${base}/confirm',{method:'POST',body:new URLSearchParams({expected_amount:'1500'})});</script>`
  const verify=`<script>(async()=>{const p=()=>fetch('/backend-api/payments/checkout/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({checkout_session_id:'${mode==='wrong_order'?'cs_test_Other':id}',processor_entity:'openai_llc'})});await p();${mode==='duplicate'?'try{await p()}catch{}':''}${mode==='separate_verify'?'':"await fetch('"+base+"')"}})()</script>`
- const deps={exitIP:async()=>{probes++;return mode==='ip_changed'&&probes>=3?'203.0.113.3':'203.0.113.2'},playwright:{chromium:{launch:async options=>{
+ const deps={exitIP:async()=>{probes++;return mode==='ip_changed'&&confirm>0?'203.0.113.3':'203.0.113.2'},playwright:{chromium:{launch:async options=>{
    const b=await chromium.launch({headless:true,executablePath:options.executablePath}),create=b.newContext.bind(b)
    b.newContext=options=>create({...options,proxy:undefined});return b
  }}},route:async route=>{

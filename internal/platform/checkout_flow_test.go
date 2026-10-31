@@ -186,6 +186,7 @@ func TestProtocolLinkRequestGuard(t *testing.T) {
 			if err != nil || job == nil {
 				t.Fatal("claim failed", err)
 			}
+			mockOrderIP(t, h.a, "203.0.113.2")
 			run := &protocolCheckoutRun{a: h.a, job: job, country: "PH"}
 			for _, target := range []string{"https://api.stripe.com/v1/payment_methods", "https://chatgpt.com/backend-api/subscriptions", "https://api.stripe.com/v1/payment_pages/cs_live_Test/confirm", "https://chatgpt.com/backend-api/payments/subscription/update", "http://chatgpt.com/backend-api/payments/checkout"} {
 				if run.beforeRequest(ctx, "POST", target) == nil {

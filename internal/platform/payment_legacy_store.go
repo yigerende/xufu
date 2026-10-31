@@ -9,7 +9,7 @@ import (
 
 func (a *App) legacyPaymentInput(ctx context.Context, id, attempt string, in *paymentInput) error {
 	var sealed string
-	if err := a.DB.QueryRow(ctx, "SELECT legacy_checkpoint_enc FROM payment_runs WHERE order_id=$1 AND attempt_id=$2", id, attempt).Scan(&sealed); err != nil {
+	if err := a.DB.QueryRow(ctx, "SELECT legacy_checkpoint_enc,executor FROM payment_runs WHERE order_id=$1 AND attempt_id=$2", id, attempt).Scan(&sealed, &in.Executor); err != nil {
 		return err
 	}
 	if in.Mode == "check" && sealed != "" {
@@ -17,6 +17,9 @@ func (a *App) legacyPaymentInput(ctx context.Context, id, attempt string, in *pa
 		if err != nil || json.Unmarshal([]byte(raw), &in.Checkpoint) != nil {
 			return errors.New("invalid_response")
 		}
+		// Older protocol orders predate the executor column. Their original
+		// encrypted checkpoint remains authoritative for GET-only recovery.
+		in.Executor = paymentExecutorLegacyHTTP
 	}
 	var auth string
 	if err := a.DB.QueryRow(ctx, "SELECT credentials_enc FROM subscription_runs WHERE order_id=$1 AND credentials_expires_at>now()", id).Scan(&auth); err == nil && auth != "" {

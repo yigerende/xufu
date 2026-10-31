@@ -222,7 +222,8 @@ func (a *App) adminOrders(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) adminOrderDetail(w http.ResponseWriter, r *http.Request) {
 	orders, e := a.query(r.Context(), `SELECT o.id,o.user_id,o.product_id,o.product_name,o.email,o.country,o.seats,o.status,o.fee,o.source,o.workflow,o.keep_renewal,o.renewal,o.activation,o.note,o.created_at,o.updated_at,o.price_snapshot,u.email AS owner,
- CASE WHEN o.workflow='subscription' THEN CASE WHEN EXISTS(SELECT 1 FROM subscription_protocol p WHERE p.order_id=o.id) THEN 'cslive' ELSE 'legacy' END
+ CASE WHEN o.workflow='subscription' THEN CASE WHEN EXISTS(SELECT 1 FROM subscription_protocol p WHERE p.order_id=o.id) THEN 'cslive'
+ WHEN EXISTS(SELECT 1 FROM payment_runs p WHERE p.order_id=o.id AND (p.executor='legacy_http' OR p.legacy_checkpoint_enc<>'')) THEN 'legacy_protocol' ELSE 'legacy' END
  ELSE COALESCE((SELECT c.flow FROM checkout_runs c WHERE c.order_id=o.id),'') END AS subscription_flow,
  COALESCE((SELECT c.flow FROM checkout_runs c WHERE c.order_id=o.id),'') AS checkout_flow
  FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id=$1`, r.PathValue("id"))

@@ -54,33 +54,43 @@ func (r *protocolRun) client(ttl int) (protocolPaymentClient, func(), error) {
 		return nil, nil, cslive.Failure("proxy_session_unavailable")
 	}
 	proxyURL.User = url.UserPassword(bridge.Username, bridge.Password)
-	guard := func(ctx context.Context, method, target string) error {
-		u, err := url.Parse(target)
-		if err != nil || u.Scheme != "https" || u.User != nil || !browserProxyHost(u.Hostname()) || (u.Port() != "" && u.Port() != "443") {
-			return cslive.Failure("invalid_request_url")
-		}
-		if err = r.guardProxy(ctx); err != nil {
-			return err
-		}
-		if method == "POST" && u.Host == "chatgpt.com" && u.Path == "/backend-api/payments/checkout" && r.job != nil {
-			if r.checkoutFlow == subscriptionFlowLegacy {
-				return cslive.Failure("checkout_result_unknown")
-			}
-			if err = r.a.BeforeSideEffect(ctx, r.job); err != nil {
-				return cslive.Failure("checkpoint_failed")
-			}
-		}
-		// Cancellation retry/recovery follows the supplied protocol: a transient
-		// failure is rechecked before its bounded retry. Never reset payment state.
-		return nil
-	}
 	timezone := map[string]string{"PH": "Asia/Manila", "US": "America/New_York", "JP": "Asia/Tokyo", "SG": "Asia/Singapore", "GB": "Europe/London", "EG": "Africa/Cairo", "TR": "Europe/Istanbul"}[r.country]
 	config := cslive.DefaultConfig()
 	config.Proxy, config.Currency, config.Timezone = proxyURL.String(), strings.ToUpper(r.currency), timezone
 	c := cslive.NewClient(config, cslive.Hooks{
-		Checkpoint: r.save, BeforeRequest: guard, Progress: r.progress, Event: r.event,
+		Checkpoint: r.save, BeforeRequest: r.beforeRequest, Progress: r.progress, Event: r.event,
 	})
 	return nativeProtocolClient{c}, closeAll, nil
+}
+
+func (r *protocolRun) beforeRequest(ctx context.Context, method, target string) error {
+	u, err := url.Parse(target)
+	if err != nil || u.Scheme != "https" || u.User != nil || !browserProxyHost(u.Hostname()) || (u.Port() != "" && u.Port() != "443") {
+		return cslive.Failure("invalid_request_url")
+	}
+	if err = r.guardProxy(ctx); err != nil {
+		return err
+	}
+	if method == "POST" && u.Hostname() == "chatgpt.com" && u.Path == "/backend-api/payments/checkout" {
+		if r.checkoutFlow == subscriptionFlowLegacy || r.job == nil {
+			return cslive.Failure("checkout_result_unknown")
+		}
+		ip, e := r.a.orderExitIP(ctx, r.id, r.guardProxy, false)
+		if e != nil {
+			return e
+		}
+		if e = r.a.recordOrderProxyIP(ctx, r.job, ip.String()); e != nil {
+			return cslive.Failure("proxy_session_unavailable")
+		}
+		if err = r.a.BeforeSideEffect(ctx, r.job); err != nil {
+			return cslive.Failure("checkpoint_failed")
+		}
+	}
+	if paymentWriteKind(method, u) != "" {
+		_, err = r.a.orderExitIP(ctx, r.id, r.guardProxy, true)
+		return err
+	}
+	return nil
 }
 
 // Keep the original proxy binding and live leases without querying its exit IP.

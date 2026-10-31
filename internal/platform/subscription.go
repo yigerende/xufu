@@ -28,7 +28,7 @@ func (a *App) reserveSubscription(ctx context.Context, tx pgx.Tx, id, user strin
  SELECT order_id,$2,$3,credentials_enc,LEAST(credentials_expires_at,now()+interval '24 hours'),$4 FROM checkout_runs WHERE order_id=$1`, id, limit, currency, accountHash)
 	}
 	if e == nil {
-		_, e = tx.Exec(ctx, "INSERT INTO payment_runs(order_id,attempt_id,state,last4,expires_at,hosted_url_enc) VALUES($1,$2,'preparing',$3,now()+($4*interval '1 second'),'')", id, attempt, card.Number[len(card.Number)-4:], ttl)
+		_, e = tx.Exec(ctx, "INSERT INTO payment_runs(order_id,attempt_id,state,last4,expires_at,hosted_url_enc,executor) VALUES($1,$2,'preparing',$3,now()+($4*interval '1 second'),'',$5)", id, attempt, card.Number[len(card.Number)-4:], ttl, subscriptionPaymentExecutor(flow))
 	}
 	if e == nil && flow == subscriptionFlowCSLive {
 		_, e = tx.Exec(ctx, "INSERT INTO subscription_protocol(order_id,expires_at) SELECT order_id,credentials_expires_at FROM subscription_runs WHERE order_id=$1", id)

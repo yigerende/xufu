@@ -91,6 +91,9 @@ func TestActionUsesOriginalContextAndNeverSettlesFromBrowser(t *testing.T) {
 	for _, mode := range []string{"sdk_returned", "sdk_error", "runtime_error", "interrupted", "ip_drift", "expired", "bad_intent"} {
 		t.Run(mode, func(t *testing.T) {
 			h, r, cp := nativeFixture(t, false)
+			if mode == "ip_drift" {
+				mockOrderIP(t, h.a, "203.0.113.3")
+			}
 			if ok, e := r.approve(1500, "PHP"); !ok || e != nil {
 				t.Fatal("approval", e)
 			}
@@ -133,11 +136,11 @@ func TestActionUsesOriginalContextAndNeverSettlesFromBrowser(t *testing.T) {
 			}
 			v := &paymentAction{}
 			err = r.runPaymentAction(cp, v)
-			want := map[string]string{"runtime_error": "action_runtime_unavailable", "interrupted": "action_interrupted", "expired": "proxy_session_expired", "bad_intent": "payment_intent_state_unavailable"}[mode]
+			want := map[string]string{"ip_drift": "proxy_session_changed", "runtime_error": "action_runtime_unavailable", "interrupted": "action_interrupted", "expired": "proxy_session_expired", "bad_intent": "payment_intent_state_unavailable"}[mode]
 			if cslive.ErrorCode(err) != want {
 				t.Fatalf("result %v, wanted %s", err, want)
 			}
-			if (mode == "expired" || mode == "bad_intent") && started {
+			if (mode == "expired" || mode == "bad_intent" || mode == "ip_drift") && started {
 				t.Fatal("invalid context started browser")
 			}
 			if started && mode != "runtime_error" && !process.closed {

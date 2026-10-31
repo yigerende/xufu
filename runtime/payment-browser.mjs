@@ -19,7 +19,7 @@ export function checkoutIdentity(raw) {
   return m[1]
 }
 export function allowedHost(host) {
-  return ['pay.openai.com','checkout.stripe.com','chatgpt.com','cdn.oaistatic.com','tcr9i.chat.openai.com','challenges.cloudflare.com','api.stripe.com','js.stripe.com','stripe.com','stripe.network','b.stripecdn.com','hcaptcha.com','stripe-camo.global.ssl.fastly.net','d1wqzb5bdbcre6.cloudfront.net','maps.googleapis.com','applepay.cdn-apple.com'].some(h=>host===h||(['stripe.com','stripe.network','hcaptcha.com'].includes(h)&&host.endsWith('.'+h)))
+  return ['pay.openai.com','checkout.stripe.com','chatgpt.com','cdn.oaistatic.com','tcr9i.chat.openai.com','challenges.cloudflare.com','api.stripe.com','js.stripe.com','stripe.com','stripe.network','b.stripecdn.com','hcaptcha.com','stripe-camo.global.ssl.fastly.net','d1wqzb5bdbcre6.cloudfront.net','maps.googleapis.com','places.googleapis.com','applepay.cdn-apple.com'].some(h=>host===h||(['stripe.com','stripe.network','hcaptcha.com'].includes(h)&&host.endsWith('.'+h)))
 }
 export function paymentProxy(input) {
   const p=input.proxy
@@ -45,6 +45,11 @@ export function snapshot(body, id) {
 }
 export function confirmMatches(url, form, id, quote) {
   return new URL(url).hostname==='api.stripe.com' && new URL(url).pathname===`/v1/payment_pages/${id}/confirm` && form.get('expected_amount')===String(quote.amount)
+}
+export function hostedPollSnapshot(body,id,pageID,latest,quote) {
+  if(!/^ppage_[A-Za-z0-9]+$/.test(pageID||'')||body?.id!==pageID||body?.session_id!==id||body.state!=='succeeded'||body.payment_object_status!=='succeeded')return null
+  if(!latest||latest.evidence?.checkout_id!==id||!quote||latest.amount!==quote.amount||latest.currency!==quote.currency)return null
+  return {...latest,paid:true,open:false,action:false,authorized:false,evidence:{...latest.evidence,status:'succeeded',amount_received:null}}
 }
 const pause = ms=>new Promise(r=>setTimeout(r,ms))
 const safePaymentCodes=new Set(['card_declined','expired_card','incorrect_cvc','incorrect_number','incorrect_zip','insufficient_funds','do_not_honor','generic_decline','authentication_required','payment_intent_authentication_failure','processing_error','billing_automatic_tax_unrecognized_customer_location'])
@@ -72,7 +77,7 @@ export async function run(input, commands, emit, dependencies={}) {
   let finished=false,observations=Promise.resolve()
   const send=emit
   emit=e=>{if(!finished)send(e)}
-  let browser, hosted, pageDiagnostics, sent=false, permit=false, latest=null, changedAt=0, quote=null, blocked='', responseCount=0, declined=false, networkFailed=false
+  let browser, hosted, pageDiagnostics, sent=false, permit=false, latest=null, pageID='', changedAt=0, quote=null, blocked='', responseCount=0, declined=false, networkFailed=false
   const stage = code=>emit({type:'stage',code})
   const done = (state,code='')=>{pageDiagnostics?.finish(hosted?.started===true);emit({type:'result',state,code,sent,amount:latest?.amount||0,currency:latest?.currency||'',evidence:latest?.evidence});finished=true}
   let quoteTimer
@@ -83,6 +88,7 @@ export async function run(input, commands, emit, dependencies={}) {
     const id=checkoutIdentity(input.url)
     const identity=customIdentity(input.url),custom=identity?new CustomPayment(identity):null
     hosted=custom?null:new HostedApproval(id,input.resume_approval===true)
+    if(input.mode==='check')quote=input.saved_quote
     if(input.resume_approval){sent=true;quote=input.saved_quote}
     const proxy=paymentProxy(input)
     const {chromium}=dependencies.playwright || await import('playwright')
@@ -136,6 +142,17 @@ export async function run(input, commands, emit, dependencies={}) {
       const req=route.request(), u=new URL(req.url())
       if(Date.now()>=input.proxy_expires_at){blocked='proxy_session_expired';return route.abort()}
       if(u.protocol!=='https:' || !allowedHost(u.hostname) || u.username || u.password || (u.port&&u.port!=='443')) {pageDiagnostics?.blocked(req);return route.abort()}
+      // SDK tokenization may start while fields are being filled. Check the
+      // original exit before allowing card data to leave this browser.
+      if(req.method()==='POST'&&u.hostname==='api.stripe.com'&&/^\/v1\/(payment_methods|confirmation_tokens|tokens)$/.test(u.pathname)) {
+        if(input.mode==='check'){blocked='duplicate_blocked';return route.abort()}
+        try{await checkExit()}catch(e){blocked=e.message;return route.abort()}
+      }
+      if(req.method()==='POST'&&u.hostname==='api.stripe.com'&&u.pathname.endsWith('/verify_challenge')) {
+        await observations
+        if(input.mode==='check'||!sent||!permit||!latest?.evidence.payment_intent_id||u.pathname!==`/v1/payment_intents/${latest.evidence.payment_intent_id}/verify_challenge`){blocked='duplicate_blocked';return route.abort()}
+        try{await checkExit()}catch(e){blocked=e.message;return route.abort()}
+      }
       if(hosted&&u.hostname==='chatgpt.com'&&u.pathname.startsWith('/backend-api/payments/')&&!['GET','HEAD','OPTIONS'].includes(req.method())) {
         await observations
         if(!hasLogin||!hosted.matches(req)||!hosted.ready(latest,quote)||!(sent&&permit)){blocked='duplicate_blocked';return route.abort()}
@@ -159,6 +176,7 @@ export async function run(input, commands, emit, dependencies={}) {
       } else if(req.method()==='POST' && /\/(confirm|pay|capture)$/.test(u.pathname)) {
         if(input.mode==='check'||!permit||sent) {blocked='duplicate_blocked';return route.abort()}
         if(!latest || latest.amount!==quote.amount||latest.currency!==quote.currency||!latest.taxReady||!confirmMatches(req.url(),new URLSearchParams(req.postData()||''),id,quote)) {blocked='amount_changed';return route.abort()}
+        try{await checkExit()}catch(e){blocked=e.message;return route.abort()}
         sent=true
         emit({type:'submitted'})
       }
@@ -192,9 +210,10 @@ export async function run(input, commands, emit, dependencies={}) {
       for(const diagnostics of paymentDiagnostics(body))emit({type:'diagnostic',phase:quote?'checking':'pricing',http_status:res.status(),diagnostics})
       if(u.pathname===`/v1/payment_pages/${id}/confirm`&&res.status()===402&&body?.error?.type==='card_error'&&['card_declined','expired_card','incorrect_cvc','incorrect_number'].includes(body.error.code)&&(!body.error.payment_intent||body.error.payment_intent.status==='requires_payment_method'))declined=true
       if(res.status()!==200)return
-      const s=snapshot(body,id)
+      const poll=u.pathname===`/v1/payment_pages/${id}/poll`
+      const s=poll?hostedPollSnapshot(body,id,pageID,latest,quote):snapshot(body,id)
       hosted?.observe(body,s)
-      if(s){latest=s;changedAt=Date.now();responseCount++}
+      if(s&&!latest?.paid){if(!poll)pageID=body.id;latest=s;changedAt=Date.now();responseCount++}
     }).catch(()=>{})})
     const navigate=()=>page.goto(input.url,{waitUntil:'domcontentloaded',timeout:Math.min(input.prepare_seconds*1000,60000)})
     const continueApproval=async()=>{
@@ -218,20 +237,17 @@ export async function run(input, commands, emit, dependencies={}) {
     await navigate()
     if(input.mode==='check') {
       const until=Date.now()+input.prepare_seconds*1000
-      while(!latest&&Date.now()<until) await pause(250)
-      if(latest?.paid) return done('succeeded')
-      if(input.resume_approval&&latest?.open&&quote){
-        permit=true
-        await continueApproval()
-        while(Date.now()<until){
-          if(latest?.paid)return done('succeeded')
-          if(latest?.action)return done('action_required','verification_required')
-          if(blocked)return done('review',blocked)
+      while(Date.now()<until){
+        if(latest?.paid)return done('succeeded')
+        if(blocked)return done('review',blocked)
+        if(input.resume_approval&&latest?.open&&quote){
+          permit=true
+          await continueApproval()
           await verifyApproval()
-          await pause(300)
         }
+        await pause(300)
       }
-      return done(latest?.action?'action_required':'review','result_unconfirmed')
+      return done(latest?.action?'action_required':'review',latest?.action?'verification_required':'result_unconfirmed')
     }
     // No endpoint parameters or verification tokens are synthesized. The current
     // official checkout renders fields, calculates tax and performs verification.
@@ -251,6 +267,7 @@ export async function run(input, commands, emit, dependencies={}) {
       if(required)throw Error('checkout_fields_unavailable')
       return false
     }
+    await checkExit()
     await field(['#cardNumber','input[name="cardnumber"]','input[name="cardNumber"]','input[name="number"]','input[autocomplete="cc-number"]'],input.card.number)
     await field(['#cardExpiry','input[name="exp-date"]','input[name="cardExpiry"]','input[name="expiry"]','input[autocomplete="cc-exp"]'],`${input.card.month}/${input.card.year.slice(-2)}`)
     await field(['#cardCvc','input[name="cvc"]','input[name="cardCvc"]','input[autocomplete="cc-csc"]'],input.card.cvc)
@@ -294,14 +311,15 @@ export async function run(input, commands, emit, dependencies={}) {
       if(latest?.paid) return done('succeeded')
       if(declined) return done('declined','payment_declined')
       if(blocked) return done(sent?'review':'failed',blocked)
-      if(latest?.action) return done('action_required','verification_required')
+      // Keep the official page alive while its SDK completes the current
+      // challenge. No synthetic token, puzzle solving or second confirm.
       if(latest?.authorized) return done('review','payment_authorized')
       await continueApproval()
       await verifyApproval()
       await pause(300)
     }
     // Even an apparently empty response after clicking may have caused a charge.
-    return done(sent?'review':'failed',sent?'result_unconfirmed':'verification_required')
+    return done(latest?.action?'action_required':sent?'review':'failed',latest?.action?'verification_required':sent?'result_unconfirmed':'verification_required')
   } catch (e) {
     // Never propagate exception strings: Playwright often includes filled values.
     const safeCodes=new Set(['invalid_session','unsupported_checkout','quote_unavailable','checkout_fields_unavailable','proxy_session_unavailable','proxy_session_expired','proxy_session_changed'])

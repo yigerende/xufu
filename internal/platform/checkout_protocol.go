@@ -60,6 +60,13 @@ func (r *protocolCheckoutRun) beforeRequest(ctx context.Context, method, target 
 		if r.written {
 			return cslive.Failure("checkout_result_unknown")
 		}
+		ip, e := r.a.orderExitIP(ctx, r.job.OrderID, r.guardProxy, false)
+		if e != nil {
+			return e
+		}
+		if e = r.a.recordOrderProxyIP(ctx, r.job, ip.String()); e != nil {
+			return cslive.Failure("proxy_session_unavailable")
+		}
 		if err = r.a.BeforeSideEffect(ctx, r.job); err != nil {
 			return cslive.Failure("checkpoint_failed")
 		}
@@ -158,15 +165,5 @@ func (a *App) generateProtocolCheckout(ctx context.Context, j *Job, endpoint str
 	if !valid || u == nil || path.Base(u.Path) != result.CheckoutID || strings.Contains(result.CheckoutURL, session.AccessToken) || strings.Contains(result.CheckoutURL, session.SessionToken) {
 		return checkoutOutput{}, checkoutFailure("checkout_result_unknown", false, run.written || result.CheckoutID != "")
 	}
-	out := checkoutOutput{URL: result.CheckoutURL}
-	if result.Session != nil {
-		s := result.Session
-		if s.AccessToken == "" || s.AccountID != in.AccountID || !strings.EqualFold(s.Email, in.Email) {
-			return checkoutOutput{}, checkoutFailure("account_mismatch", false, true)
-		}
-		// The next stage must receive refreshed credentials from this checkout,
-		// not the pre-refresh token copied at admission. Keep authorization TTLs.
-		out.Credentials = &checkoutInput{AccessToken: s.AccessToken, AccountID: s.AccountID, Email: s.Email, SessionToken: s.SessionToken, Cookies: s.Cookies}
-	}
-	return out, nil
+	return checkoutOutput{URL: result.CheckoutURL}, nil
 }

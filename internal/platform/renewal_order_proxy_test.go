@@ -109,20 +109,17 @@ func TestPaidOrderRetainsProxyThroughRenewal(t *testing.T) {
 				if renewal != "disabled" || activation != "active" || writes != 1 {
 					t.Fatal("incomplete renewal", renewal, activation, writes)
 				}
-				want := 2
-				if mode == "retry" {
-					want = 3
-				}
+				want := 1
 				if refreshes != want {
 					t.Fatal("incorrect refresh order", refreshes)
 				}
 			case "keep":
-				if renewal != "kept" || activation != "active" || refreshes != 1 || writes != 0 {
+				if renewal != "kept" || activation != "active" || refreshes != 0 || writes != 0 {
 					t.Fatal("keep changed")
 				}
 			case "activation_401":
-				if activation != "review" || renewal != "review" || refreshes != 1 || reads != 1 || writes != 0 {
-					t.Fatal("rejected refreshed authorization continued", activation, renewal, refreshes, reads, writes)
+				if activation != "active" || renewal != "disabled" || refreshes != 2 || reads != 4 || writes != 1 {
+					t.Fatal("initial rejected authorization did not refresh and recover", activation, renewal, refreshes, reads, writes)
 				}
 			default:
 				if writes != 0 || renewal != "review" {

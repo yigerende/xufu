@@ -56,7 +56,7 @@ func TestCheckoutProductSettingsValidationAndUpgrade(t *testing.T) {
 }
 
 func TestCheckoutProductSelectionBothFlowsAndPages(t *testing.T) {
-	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive} {
+	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol} {
 		for _, workflow := range []string{"checkout", "subscription"} {
 			for _, product := range []string{"pro5x", "pro", "team", "team_premium"} {
 				t.Run(flow+"/"+workflow+"/"+product, func(t *testing.T) {
@@ -91,7 +91,7 @@ func TestCheckoutProductSelectionBothFlowsAndPages(t *testing.T) {
 					headers := map[string]string{"Idempotency-Key": uid()}
 					id := str(expect(t, h.request("POST", "/api/orders", body, h.member, headers), 200), "id")
 					var saved, executor string
-					if err := h.a.DB.QueryRow(ctx, "SELECT checkout_type,flow FROM checkout_runs WHERE order_id=$1", id).Scan(&saved, &executor); err != nil || saved != want || executor != flow {
+					if err := h.a.DB.QueryRow(ctx, "SELECT checkout_type,flow FROM checkout_runs WHERE order_id=$1", id).Scan(&saved, &executor); err != nil || saved != want || executor != configuredCheckoutFlow(M{"subscription_flow": flow}) {
 						t.Fatal("wrong per-product selection", saved, executor, err)
 					}
 					cfg = h.a.config(ctx, "payment")

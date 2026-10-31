@@ -12,6 +12,7 @@ import (
 
 type legacyPaymentCheckpoint struct {
 	CheckoutID string `json:"checkout_id"`
+	PageID     string `json:"page_id,omitempty"`
 	Key        string `json:"key"`
 	EID        string `json:"eid,omitempty"`
 	IntentID   string `json:"intent_id,omitempty"`

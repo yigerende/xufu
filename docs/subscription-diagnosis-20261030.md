@@ -1,3 +1,23 @@
+# 18:51 版本修正后仍返回 HTTP 400
+
+订单`1fc065720d17634e4d745a684b9ffa7a`已使用修正后的版本，付款前IP检查通过，创建付款方式仍400/invalid_request_error，submitted=false、fee_state=released。此次通过原构造函数的离线请求捕获逐字段对照成功HAR：PaymentMethod少10个字段，confirm少13个，包含结账关联、SDK会话与后续动态验证上下文。完整清单和证据边界见[完整字段差异](legacy-payment-har-gap-20261030.md)。版本修正不是实际失败的充分解决方案，现有日志仍不足以确定唯一拒绝原因；本次没有继续盲改或宣称完整协议已等价。
+
+# 18:29 本地旧旧付款方式创建 HTTP 400
+
+订单 `a68b74fa60df5db55e8b69ebaa26951d`，18:28:12 创建，Pro5x / PH / PHP / Hosted / legacy＋legacy。提链、初始化、账单税费及读取报价均成功；18:29:06 付款前检查记录 `exit_ip_matched`。18:29:11 创建 PaymentMethod 返回 HTTP 400，`invalid_request_error`，请求编号 `req_RpYLKuNd2X5OSR`。submitted=false、fee_state=released，没有发 confirm。
+
+成功的《支付包.har》在 PaymentMethod 及 Hosted confirm 表单中均发送 `_stripe_version=2020-08-27;custom_checkout_beta=v1`。原 Go 实现却统一使用 `2026-03-25.dahlia` 请求头，且 Hosted PaymentMethod 表单缺少版本字段。已将 Hosted 版本及这两次写请求的表单字段对齐参考；Custom 分支的原版本保留，init/tax/read 不增加抓包没有的表单版本字段。
+
+离线回归先验证原实现不满足该请求契约，再验证修正通过；同时覆盖 PaymentMethod 400 后零 confirm、零重试、submitted=false，以及原 IP 门槛、短链和只读恢复。新增请求实际使用的固定版本诊断及 `invalid_api_version` 分类，仍不记录原始错误消息/响应或卡片资料。现存日志没有具体 code/param/reason，无法证明版本差异就是这次 HTTP 400 的唯一原因。成功抓包中的浏览器设备数据及动态验证字段不能重放或伪造；此次没有真实付款验证，不宣称整体办理已成功。实际本地更新时间和健康验证见 verification.md 与运维 runbook。
+
+# 15:02 本地旧旧协议付款 HTTP 400 与后续 IP 门槛
+
+本地订单 `2e29e2f36a5c931f233fc06610ad1ebd`：Pro5x / PH / PHP / Hosted，旧提链＋旧协议付款。提链、原 Payment Page 初始化、账单税区更新和含税报价均 HTTP 200；报价579464分。15:02:11 创建 PaymentMethod 返回 HTTP 400，关联编号 `req_CfbuVWSOSDx82v`，尚未发送实际付款确认。订单/付款 failed，submitted=false，服务费 released，无实收金额。
+
+旧诊断仅保存 request_rejected 和 response_kind=json，没有原始 error.type/param/message，无法事后确定具体参数或权限原因。不能推测为银行拒付、验证码、代理漂移或某一缺失字段。本次补充脱敏白名单诊断，并把创建付款方式从“填写账单/提交付款”中单独展示。历史错误不会补造。
+
+用户随后要求恢复付款前出口一致性检查。新旧提链保存原基准，四组合的卡片资料提交及实际确认/批准前使用保存的原代理检查；缺基准、漂移、探测失败均停止，新流程验证窗口开始前也检查。保留普通读取/后续处理的原代理及租约规则。此次没有重放真实付款或重新使用卡片/session，也不能把离线回归称为真实付款成功。当前本地验证和重启结果见 docs/verification.md 与工作区运维 runbook；以下为此前时点记录。
+
 # 2026-10-30 原版对照、订阅诊断与代理约束调整
 
 本轮正式版本仍为 `c2c166bef116587b4fe35a3e7f90633761a5b421`。下面代码修改均为本地工作区内容，未提交、推送或正式发布；本地隔离18869已更新。12:18用户新开的旧旧Pro5x已确认付款成功，订阅生效查询及关闭续费尚未确认；下方较早“未成功”描述只指相应历史订单。

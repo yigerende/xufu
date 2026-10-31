@@ -97,10 +97,15 @@ func validateConfig(key string, v M) error {
 			return bad("结账链接类型须选择长链或短链")
 		}
 		if _, present := v["subscription_flow"]; present && !validSubscriptionFlow(str(v, "subscription_flow")) {
-			return bad("付款及后续流程须选择旧流程或新流程")
+			return bad("请选择旧浏览器、旧协议或新流程")
 		}
 		if _, present := v["checkout_flow"]; present && !validSubscriptionFlow(str(v, "checkout_flow")) {
 			return bad("结账链接生成流程须选择旧流程或新流程")
+		}
+		if _, old := v["checkout_flow"]; old {
+			if _, selected := v["subscription_flow"]; !selected || str(v, "checkout_flow") != str(v, "subscription_flow") {
+				return bad("请选择同一套完整订阅流程，不再支持新旧提链和付款混搭；请刷新管理页面")
+			}
 		}
 		if e := boolean("enabled"); e != nil {
 			return e
@@ -297,12 +302,10 @@ func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 				v["network_restart_limit"] = num(previous, "network_restart_limit", 2)
 			}
 			// An older admin page must not reset a selection it did not submit.
-			if _, present := v["checkout_flow"]; !present {
-				v["checkout_flow"] = configuredCheckoutFlow(previous)
-			}
 			if _, present := v["subscription_flow"]; !present {
 				v["subscription_flow"] = configuredSubscriptionFlow(previous)
 			}
+			delete(v, "checkout_flow")
 			if _, present := v["checkout_type"]; !present {
 				v["checkout_type"] = configuredCheckoutType(previous)
 			}
@@ -321,12 +324,8 @@ func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 				auditMessage += "；历史兼容字段由" + labels[before] + "改为" + labels[after] + "，实际执行以套餐配置为准"
 			}
 			if before, after := configuredSubscriptionFlow(previous), configuredSubscriptionFlow(v); before != after {
-				labels := map[string]string{subscriptionFlowLegacy: "旧流程", subscriptionFlowCSLive: "新流程"}
-				auditMessage += "；付款及后续流程由" + labels[before] + "切换为" + labels[after] + "，仅新建订单生效"
-			}
-			if before, after := configuredCheckoutFlow(previous), configuredCheckoutFlow(v); before != after {
-				labels := map[string]string{subscriptionFlowLegacy: "旧流程", subscriptionFlowCSLive: "新流程"}
-				auditMessage += "；结账链接生成流程由" + labels[before] + "切换为" + labels[after] + "，订阅与独立提链的新申请生效"
+				labels := map[string]string{subscriptionFlowLegacy: "旧流程（浏览器）", subscriptionFlowLegacyProtocol: "旧流程（协议）", subscriptionFlowCSLive: "新流程"}
+				auditMessage += "；完整订阅流程由" + labels[before] + "切换为" + labels[after] + "，订阅与独立提链的新申请生效"
 			}
 			b, _ = json.Marshal(v)
 		}

@@ -75,7 +75,7 @@ func TestSubscriptionFlowSettingsAndMigration(t *testing.T) {
 }
 
 func TestSubscriptionFlowAdmissionReplayAndPrivacy(t *testing.T) {
-	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive} {
+	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol} {
 		for _, route := range []string{"/api/orders", "/api/v1/orders"} {
 			t.Run(flow+route, func(t *testing.T) {
 				h := setupTest(t)
@@ -92,7 +92,7 @@ func TestSubscriptionFlowAdmissionReplayAndPrivacy(t *testing.T) {
 				setSubscriptionFlow(t, h, flow)
 				body := prepareRequest()
 				body["workflow"], body["card"] = "subscription", paymentPrepareBody()["card"]
-				if flow == subscriptionFlowLegacy {
+				if flow != subscriptionFlowCSLive {
 					delete(body["session"].(M), "sessionToken")
 				}
 				headers := map[string]string{"Idempotency-Key": uid()}
@@ -122,6 +122,24 @@ func TestSubscriptionFlowAdmissionReplayAndPrivacy(t *testing.T) {
 				replay := expect(t, h.request("POST", route, body, cookie, headers), 200)
 				if replay["id"] != id || replay["replayed"] != true || h.a.isProtocolSubscription(ctx, id) != wantProtocol {
 					t.Fatal("switch changed or duplicated an existing order")
+				}
+				var in paymentInput
+				if err := h.a.legacyPaymentInput(ctx, id, session.attempt, &in); err != nil || in.Executor != subscriptionPaymentExecutor(flow) {
+					t.Fatal("persisted executor changed after config switch", err)
+				}
+				if flow == subscriptionFlowLegacyProtocol {
+					// No Node/Playwright dependency for protocol payment or recovery.
+					t.Setenv("PAYMENT_RUNTIME_PATH", "missing-browser-runtime.mjs")
+					if !h.a.orderPaymentEnabled(ctx, id) {
+						t.Fatal("HTTP executor depends on browser runtime")
+					}
+					if err := h.a.seed(ctx); err != nil {
+						t.Fatal(err)
+					}
+					in = paymentInput{Mode: "check"}
+					if err := h.a.legacyPaymentInput(ctx, id, session.attempt, &in); err != nil || in.Executor != paymentExecutorLegacyHTTP {
+						t.Fatal("restart lost original executor", err)
+					}
 				}
 				detail := expect(t, h.request("GET", "/api/admin/orders/"+id, nil, h.admin, nil), 200)
 				if detail["order"].(map[string]any)["subscription_flow"] != flow {

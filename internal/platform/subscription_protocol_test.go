@@ -20,6 +20,7 @@ func nativeFixture(t *testing.T, keep bool) (*harness, *protocolRun, cslive.Chec
 func protocolFixture(t *testing.T, keep, worker bool) (*harness, *protocolRun, cslive.Checkpoint) {
 	t.Helper()
 	h := setupTest(t)
+	mockOrderIP(t, h.a, "203.0.113.2")
 	ctx := context.Background()
 	h.saveTestBilling("subscription@example.com")
 	h.addProxy("PH", 2)

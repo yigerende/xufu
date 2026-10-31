@@ -2,12 +2,11 @@ package platform
 
 import "xupay/internal/cslive"
 
-// The CLI's Pay -> continuePaymentAction -> Recover sequence lives inside the
-// order worker. The server opens the original SDK page and starts its button;
-// a customer/admin HTTP request is not needed to advance this branch.
+// Like the reference CLI, keep action_required until an operator opens the
+// official SDK continuation. Never silently start an unattended challenge.
 func (r *protocolRun) continuePaymentAction(client protocolPaymentClient, prior cslive.Result, v *paymentAction) (cslive.Result, error) {
 	cp := prior.Checkpoint
-	if cp.Payment != "action_required" {
+	if cp.Payment != "action_required" || v == nil {
 		return prior, nil
 	}
 	if err := r.save(cp); err != nil {
@@ -26,10 +25,6 @@ func (r *protocolRun) continuePaymentAction(client protocolPaymentClient, prior 
 	}
 	if err = tx.Commit(r.ctx); err != nil {
 		return prior, err
-	}
-	if v == nil {
-		// Automatic runs do not publish an interactive session or capture frames.
-		v = &paymentAction{automatic: true, state: "preparing"}
 	}
 	if err = r.runPaymentAction(cp, v); err != nil {
 		// Match the package: a lost/expired verification session preserves the

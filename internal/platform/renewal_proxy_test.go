@@ -269,7 +269,7 @@ func TestRenewalFlowsUseTheirConfiguredProxyForEveryRequest(t *testing.T) {
 			wantReads, wantMethods := int32(2), "GET,GET,POST,GET"
 			wantRefreshes := int32(1)
 			if mode == "subscription" {
-				wantReads, wantMethods, wantRefreshes = 3, "GET,GET,GET,GET,POST,GET", 2
+				wantReads, wantMethods, wantRefreshes = 3, "GET,GET,GET,POST,GET", 1
 			}
 			if writes.Load() != 1 || reads.Load() != wantReads || refreshes.Load() != wantRefreshes || tunnels.Load() < 1 || factories != 1 {
 				t.Fatal("flow did not use one proxied session", writes.Load(), reads.Load(), tunnels.Load(), factories)

@@ -21,7 +21,6 @@ type gptpay_transaction struct {
 	cancel                    context.CancelFunc
 	started                   time.Time
 	progress                  *gptpay_progressTracker
-	preparedCheckout          *PreparedCheckout
 }
 
 func gptpay_newTransaction(ctx context.Context, c *gptpay_PaymentClient, cp model_Checkpoint, operation string, clock fingerprint_Clock) (*gptpay_transaction, error) {
@@ -165,9 +164,6 @@ func (t *gptpay_transaction) close() {
 func (t *gptpay_transaction) createCheckout(kind string, withPrice bool) (result model_CheckoutResult) {
 	defer t.close()
 	defer func() {
-		result.Session = &model_Session{AccessToken: t.cp.AccessToken, SessionToken: t.cp.SessionToken, Cookies: t.cp.Cookies, AccountID: t.cp.AccountID, Email: t.cp.Email}
-	}()
-	defer func() {
 		if recover() != nil {
 			result.CheckoutID = t.cp.CheckoutID
 			if result.CheckoutID != "" {
@@ -246,13 +242,7 @@ func (t *gptpay_transaction) execute(billing model_Billing, card *model_Card, ex
 }
 
 func (t *gptpay_transaction) executeFlow(billing model_Billing, card *model_Card, expected *int64, approval model_PaymentApproval, checkoutType string) error {
-	var checkout protocol_Map
-	var e error
-	if t.preparedCheckout != nil {
-		checkout, e = t.importCheckout(*t.preparedCheckout, checkoutType)
-	} else {
-		checkout, e = t.prepareCheckout(checkoutType, true)
-	}
+	checkout, e := t.prepareCheckout(checkoutType, true)
 	if e != nil {
 		return e
 	}

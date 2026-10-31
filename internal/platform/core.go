@@ -54,6 +54,7 @@ type App struct {
 	renewalClient      func() *http.Client
 	proxyProbeClient   func(string, time.Duration) (*http.Client, func(), error)
 	renewalProxyClient func(string, time.Duration) (*http.Client, func(), error)
+	orderIPClient      func(string, time.Duration) (*http.Client, func(), error)
 }
 type User struct {
 	ID      string `json:"id"`
@@ -151,7 +152,7 @@ func (a *App) seed(ctx context.Context) error {
 		"scheduler": {"paused": false, "max_parallel": 2, "per_user_parallel": 1, "retry_limit": 2, "retry_delay_seconds": 30, "task_timeout_seconds": 180, "queue_limit": 500, "default_country": "PH", "link_mode": "long", "engine": "not_connected"},
 		"billing":   {"country": "US", "allow_customer_edit": true, "address_templates": []M{}},
 		"proxy":     {"default_id": "", "global_id": "", "match_country": true, "request_timeout_seconds": 60},
-		"payment":   {"enabled": true, "checkout_flow": subscriptionFlowCSLive, "subscription_flow": subscriptionFlowLegacy, "checkout_type": "hosted", "checkout_types": defaultCheckoutTypes(), "max_parallel": 2, "per_user_parallel": 1, "prepare_timeout_seconds": 120, "quote_timeout_seconds": 180, "result_timeout_seconds": 120, "requests_per_minute": 3, "subscription_wait_seconds": 600, "renewal_check_interval_seconds": 30, "renewal_check_limit": 10, "network_restart_limit": 2, "activation_check_interval_seconds": 5, "activation_check_limit": 12},
+		"payment":   {"enabled": true, "subscription_flow": subscriptionFlowCSLive, "checkout_type": "hosted", "checkout_types": defaultCheckoutTypes(), "max_parallel": 2, "per_user_parallel": 1, "prepare_timeout_seconds": 120, "quote_timeout_seconds": 180, "result_timeout_seconds": 120, "requests_per_minute": 3, "subscription_wait_seconds": 600, "renewal_check_interval_seconds": 30, "renewal_check_limit": 10, "network_restart_limit": 2, "activation_check_interval_seconds": 5, "activation_check_limit": 12},
 		"tiers":     {"items": defaultTiers().Items},
 	}
 	for k, v := range defaults {
@@ -163,9 +164,9 @@ func (a *App) seed(ctx context.Context) error {
 	if _, e := a.DB.Exec(ctx, `UPDATE settings SET value='{"checkout_type":"hosted","subscription_flow":"cslive","subscription_wait_seconds":600,"renewal_check_interval_seconds":30,"renewal_check_limit":10,"network_restart_limit":2,"activation_check_interval_seconds":5,"activation_check_limit":12}'::jsonb || value WHERE key='payment'`); e != nil {
 		return e
 	}
-	// First split defaults to new checkout + legacy browser payment, as requested.
-	// Existing explicit combinations and per-product choices are preserved.
-	if _, e := a.DB.Exec(ctx, `UPDATE settings SET value=value || '{"checkout_flow":"cslive","subscription_flow":"legacy"}'::jsonb WHERE key='payment' AND NOT(value ? 'checkout_flow')`); e != nil {
+	// Consolidate only future admission settings. Existing orders keep their
+	// original executor/checkpoint; never migrate or replay payment records.
+	if _, e := a.DB.Exec(ctx, `UPDATE settings SET value=value-'checkout_flow' WHERE key='payment' AND value ? 'checkout_flow'`); e != nil {
 		return e
 	}
 	checkoutTypes, _ := json.Marshal(defaultCheckoutTypes())

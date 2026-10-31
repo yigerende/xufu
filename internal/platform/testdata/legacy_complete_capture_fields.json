@@ -1,0 +1,205 @@
+{
+  "source": "完整支付包.har",
+  "sha256": "19f981af03c760ffa545121591ab70fe9a2a5121b93c19873797c56a5a8fa11c",
+  "entry_count": 464,
+  "checkout_count": 1,
+  "payment_method": [
+    "_stripe_version",
+    "billing_details[address][city]",
+    "billing_details[address][country]",
+    "billing_details[address][line1]",
+    "billing_details[address][postal_code]",
+    "billing_details[address][state]",
+    "billing_details[email]",
+    "billing_details[name]",
+    "card[cvc]",
+    "card[exp_month]",
+    "card[exp_year]",
+    "card[number]",
+    "client_attribution_metadata[checkout_config_id]",
+    "client_attribution_metadata[checkout_session_id]",
+    "client_attribution_metadata[client_session_id]",
+    "client_attribution_metadata[merchant_integration_source]",
+    "client_attribution_metadata[merchant_integration_version]",
+    "client_attribution_metadata[payment_method_selection_flow]",
+    "guid",
+    "key",
+    "muid",
+    "payment_user_agent",
+    "sid",
+    "type"
+  ],
+  "confirmation": [
+    "_stripe_version",
+    "client_attribution_metadata[checkout_config_id]",
+    "client_attribution_metadata[checkout_session_id]",
+    "client_attribution_metadata[client_session_id]",
+    "client_attribution_metadata[merchant_integration_source]",
+    "client_attribution_metadata[merchant_integration_version]",
+    "client_attribution_metadata[payment_method_selection_flow]",
+    "eid",
+    "expected_amount",
+    "expected_payment_method_type",
+    "guid",
+    "key",
+    "link_brand",
+    "muid",
+    "passive_captcha_token",
+    "payment_method",
+    "rv_timestamp",
+    "sid"
+  ],
+  "steps": [
+    {
+      "index": 7,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_pages/{id}/init",
+      "http": 200,
+      "request_fields": [
+        "browser_locale",
+        "browser_timezone",
+        "eid",
+        "key",
+        "redirect_type"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 123,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_pages/{id}",
+      "http": 200,
+      "request_fields": [
+        "eid",
+        "key",
+        "tax_region[country]"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 284,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_pages/{id}",
+      "http": 200,
+      "request_fields": [
+        "eid",
+        "key",
+        "tax_region[city]",
+        "tax_region[country]",
+        "tax_region[line1]",
+        "tax_region[postal_code]",
+        "tax_region[state]"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 308,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_methods",
+      "http": 200,
+      "request_fields": [
+        "_stripe_version",
+        "billing_details[address][city]",
+        "billing_details[address][country]",
+        "billing_details[address][line1]",
+        "billing_details[address][postal_code]",
+        "billing_details[address][state]",
+        "billing_details[email]",
+        "billing_details[name]",
+        "card[cvc]",
+        "card[exp_month]",
+        "card[exp_year]",
+        "card[number]",
+        "client_attribution_metadata[checkout_config_id]",
+        "client_attribution_metadata[checkout_session_id]",
+        "client_attribution_metadata[client_session_id]",
+        "client_attribution_metadata[merchant_integration_source]",
+        "client_attribution_metadata[merchant_integration_version]",
+        "client_attribution_metadata[payment_method_selection_flow]",
+        "guid",
+        "key",
+        "muid",
+        "payment_user_agent",
+        "sid",
+        "type"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 312,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_pages/{id}/confirm",
+      "http": 200,
+      "request_fields": [
+        "_stripe_version",
+        "client_attribution_metadata[checkout_config_id]",
+        "client_attribution_metadata[checkout_session_id]",
+        "client_attribution_metadata[client_session_id]",
+        "client_attribution_metadata[merchant_integration_source]",
+        "client_attribution_metadata[merchant_integration_version]",
+        "client_attribution_metadata[payment_method_selection_flow]",
+        "eid",
+        "expected_amount",
+        "expected_payment_method_type",
+        "guid",
+        "key",
+        "link_brand",
+        "muid",
+        "passive_captcha_token",
+        "payment_method",
+        "rv_timestamp",
+        "sid"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 346,
+      "method": "POST",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_intents/{id}/verify_challenge",
+      "http": 200,
+      "request_fields": [
+        "_stripe_version",
+        "captcha_vendor_name",
+        "challenge_response_token",
+        "client_secret",
+        "key"
+      ],
+      "query_fields": []
+    },
+    {
+      "index": 348,
+      "method": "GET",
+      "host": "api.stripe.com",
+      "path": "/v1/payment_pages/{id}/poll",
+      "http": 200,
+      "request_fields": [],
+      "query_fields": [
+        "key"
+      ]
+    },
+    {
+      "index": 389,
+      "method": "GET",
+      "host": "chatgpt.com",
+      "path": "/payments/success",
+      "http": 200,
+      "request_fields": [],
+      "query_fields": [
+        "plan_type",
+        "processor_entity",
+        "stripe_session_id"
+      ]
+    }
+  ],
+  "confirm_status": "requires_action",
+  "confirm_action": "intent_confirmation_challenge",
+  "verify_response_body_captured": false,
+  "poll_state": "succeeded",
+  "poll_payment_object_status": "succeeded"
+}

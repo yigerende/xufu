@@ -256,6 +256,9 @@ func (r *protocolRun) runPaymentAction(cp cslive.Checkpoint, v *paymentAction) (
 	if err = r.guardProxy(r.ctx); err != nil {
 		return err
 	}
+	if _, err = r.a.orderExitIP(r.ctx, r.id, r.guardProxy, true); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithDeadline(r.ctx, minTime(expires, time.Now().Add(10*time.Minute)))
 	defer cancel()
 	normalized, err := normalizeProxy(endpoint)

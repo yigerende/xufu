@@ -200,16 +200,7 @@ func (a *App) executeProtocolSubscription(parent context.Context, j *Job) {
 		run.fail(cslive.Failure("session_token_required"))
 		return
 	}
-	var prepared *cslive.PreparedCheckout
-	if checkoutFlow == subscriptionFlowLegacy {
-		credentials.Product, credentials.Country, credentials.Workspace = product, run.country, workspace
-		credentials.Seats, credentials.PremiumSeats, credentials.CheckoutType = seats, premium, checkoutType
-		prepared, err = run.prepareLegacyCheckout(credentials)
-		if err != nil {
-			run.fail(err)
-			return
-		}
-	} else if checkoutFlow != subscriptionFlowCSLive {
+	if checkoutFlow != subscriptionFlowCSLive {
 		run.fail(cslive.Failure("invalid_request"))
 		return
 	}
@@ -226,7 +217,7 @@ func (a *App) executeProtocolSubscription(parent context.Context, j *Job) {
 	options := cslive.PayOptions{Country: run.country, Plan: plan, CheckoutType: protocolCheckoutType(checkoutType), Billing: cslive.Billing{
 		Name: strings.TrimSpace(str(billing, "first_name") + " " + str(billing, "last_name")), Email: run.email,
 		Line1: str(billing, "line1"), City: str(billing, "city"), State: str(billing, "state"), PostalCode: str(billing, "postal_code"), Country: str(billing, "country"),
-	}, ApprovePayment: run.approve, PreparedCheckout: prepared}
+	}, ApprovePayment: run.approve}
 	if strings.HasPrefix(plan, "team") {
 		options.Seats = seats
 		if plan == "team5x" {

@@ -15,8 +15,10 @@ import (
 var royalSession = regexp.MustCompile(`(?i)_session-[^_]*`)
 var royalLifetime = regexp.MustCompile(`(?i)_lifetime-([^_]+)`)
 
-// Prepare once per order, never per HTTP request or safe retry. Preserve the
-// configured country and other supplier options; the stored resource is unchanged.
+// Only IPRoyal's residential gateway needs generated supplier session options.
+// Other proxies use their configured credentials unchanged. The order binding
+// and its credential retention deadline are local safeguards, not supplier sessions.
+// Prepare once per order, never per HTTP request or safe retry.
 func prepareOrderProxy(raw, country string) (string, time.Duration, error) {
 	normalized, err := normalizeProxy(raw)
 	if err != nil {
@@ -28,6 +30,7 @@ func prepareOrderProxy(raw, country string) (string, time.Duration, error) {
 	}
 	lifetime := time.Hour
 	if !strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "geo.iproyal.com") {
+		// Do not append, replace or validate another provider's password options.
 		return normalized, lifetime, nil
 	}
 	if u.User == nil {

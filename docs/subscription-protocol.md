@@ -1,3 +1,5 @@
+> 2026-10-31 当前规则：已改为一个完整流程选择，旧为脚本提链＋备份浏览器付款，新为 cs-live 完整流程，不再支持混搭。下面保留历史记录，当前实现和验证请以 [整套流程说明](whole-subscription-flows-20261031.md) 为准。
+
 # cs-live 订阅流程接入
 
 后台按两个独立设置组合提链与付款，默认新提链＋旧付款及后续。`payment.checkout_flow` 选择从准备到生成链接的旧脚本或新版；`payment.subscription_flow` 选择付款、生效核实、刷新与续费处理的旧浏览器方案或 cs-live 方案。独立结账链接页面只读取提链选择。四种组合共用后台逐套餐长短链配置，完整对比见 [新旧流程对照](subscription-flow-comparison.md)。

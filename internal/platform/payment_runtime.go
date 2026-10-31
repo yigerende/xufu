@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -13,6 +14,7 @@ type cardInput struct {
 	CVC    string `json:"cvc"`
 }
 type paymentInput struct {
+	Executor        string                                               `json:"-"`
 	Authorization   checkoutInput                                        `json:"-"`
 	Checkpoint      legacyPaymentCheckpoint                              `json:"-"`
 	Guard           func(context.Context) error                          `json:"-"`
@@ -22,6 +24,7 @@ type paymentInput struct {
 	SessionCookies  string                                               `json:"session_cookies,omitempty"`
 	Proxy           *browserProxyInput                                   `json:"proxy"`
 	ExpectedIP      string                                               `json:"expected_ip"`
+	CheckExitIP     func(context.Context) error                          `json:"-"`
 	SkipExitIPCheck bool                                                 `json:"skip_exit_ip_check,omitempty"`
 	ProxyExpiresAt  int64                                                `json:"proxy_expires_at"`
 	Mode            string                                               `json:"mode"`
@@ -75,5 +78,34 @@ func paymentRuntimePath() string {
 	return filepath.Join("runtime", "payment-browser.mjs")
 }
 func (a *App) paymentEnabled(ctx context.Context) bool {
-	return a.config(ctx, "payment")["enabled"] == true
+	if a.config(ctx, "payment")["enabled"] != true {
+		return false
+	}
+	if a.paymentStart != nil {
+		return true
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		return false
+	}
+	if _, err := os.Stat(paymentRuntimePath()); err != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(filepath.Dir(paymentRuntimePath()), "node_modules", "playwright", "package.json"))
+	return err == nil
+}
+
+func (a *App) paymentExecutorEnabled(ctx context.Context, executor string) bool {
+	if executor == paymentExecutorLegacyHTTP {
+		return a.config(ctx, "payment")["enabled"] == true
+	}
+	return executor == paymentExecutorBrowser && a.paymentEnabled(ctx)
+}
+
+func (a *App) orderPaymentEnabled(ctx context.Context, id string) bool {
+	var executor string
+	err := a.DB.QueryRow(ctx, `SELECT CASE WHEN legacy_checkpoint_enc<>'' THEN 'legacy_http' ELSE executor END FROM payment_runs WHERE order_id=$1`, id).Scan(&executor)
+	if err != nil {
+		return a.paymentEnabled(ctx)
+	}
+	return a.paymentExecutorEnabled(ctx, executor)
 }

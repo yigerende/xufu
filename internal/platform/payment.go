@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"xupay/internal/cslive"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -21,6 +22,10 @@ type paymentSession struct {
 }
 
 var paymentMessages = map[string]string{
+	"proxy_ip_missing":                "缺少提链时的出口 IP 记录，已停止继续付款。",
+	"proxy_ip_check_failed":           "无法确认付款出口 IP，已停止继续付款。",
+	"request_rejected":                "上游拒绝了付款请求，请查看管理员付款诊断。",
+	"card_prepare":                    "正在准备银行卡付款方式。",
 	"admin_closed":                    "管理员已关闭本站订单并释放冻结服务费，后续办理已停止。此操作不撤销已提交的银行卡付款，原付款记录保留供核实。",
 	"checkout_fields_unavailable":     "官方付款页面字段尚未就绪，未继续提交付款。",
 	"payment_authorized":              "付款已授权，实际扣款尚未确认；系统不会再次提交付款。",
@@ -101,7 +106,7 @@ func (a *App) paymentDetails(ctx context.Context, id string) M {
 		return M{"enabled": false}
 	}
 	rows, e := a.query(ctx, "SELECT attempt_id,state,amount,currency,charged_amount,charged_currency,last4,quote_expires_at,fee_state,error_code,updated_at FROM payment_runs WHERE order_id=$1", id)
-	result := M{"enabled": a.paymentEnabled(ctx)}
+	result := M{"enabled": a.orderPaymentEnabled(ctx, id)}
 	if a.isProtocolSubscription(ctx, id) {
 		result["enabled"] = a.config(ctx, "payment")["enabled"] == true
 		var active bool
@@ -370,7 +375,11 @@ func (a *App) launchPayment(id, attempt string, in paymentInput, ttl int) {
 			a.paymentMu.Unlock()
 		}()
 		start := a.paymentStart
-		if start != nil && browserPaymentURL(in.URL) {
+		if err := a.legacyPaymentInput(ctx, id, attempt, &in); err != nil {
+			a.finishPayment(ctx, id, attempt, paymentEvent{State: "unknown", Code: "result_unconfirmed"})
+			return
+		}
+		if in.Executor == paymentExecutorBrowser && browserPaymentURL(in.URL) {
 			cookies, err := a.loadBrowserSession(ctx, id)
 			if err != nil && (validCustomCheckoutURL(in.URL) || in.ResumeApproval) {
 				a.finishPayment(ctx, id, attempt, paymentEvent{State: "failed", Code: "invalid_session"})
@@ -379,11 +388,10 @@ func (a *App) launchPayment(id, attempt string, in paymentInput, ttl int) {
 			in.SessionCookies = cookies
 		}
 		if start == nil {
-			if err := a.legacyPaymentInput(ctx, id, attempt, &in); err != nil {
-				a.finishPayment(ctx, id, attempt, paymentEvent{State: "unknown", Code: "result_unconfirmed"})
-				return
+			start = startPaymentNode
+			if in.Executor == paymentExecutorLegacyHTTP {
+				start = startLegacyPayment
 			}
-			start = startLegacyPayment
 		}
 		proxy, expectedIP, proxyExpires, proxyErr := a.paymentOrderProxy(ctx, id, attempt, ttl)
 		if proxyErr != nil {
@@ -406,8 +414,21 @@ func (a *App) launchPayment(id, attempt string, in paymentInput, ttl int) {
 		}
 		defer closeBridge()
 		in.Proxy, in.ExpectedIP, in.ProxyExpiresAt = bridge, expectedIP, proxyExpires.UnixMilli()
-		in.SkipExitIPCheck = a.isSubscription(ctx, id)
+		in.SkipExitIPCheck = false
 		in.Guard = a.legacyPaymentGuard(id, attempt, proxy.Lease)
+		paymentGuard := in.Guard
+		in.CheckExitIP = func(probeCtx context.Context) error {
+			_, err := a.orderExitIP(probeCtx, id, func(ctx context.Context) error {
+				if err := paymentGuard(ctx); err != nil {
+					return cslive.Failure(err.Error())
+				}
+				return nil
+			}, true)
+			if err != nil {
+				return errors.New(cslive.ErrorCode(err))
+			}
+			return nil
+		}
 		proc, e := start(ctx, in)
 		in.Card = cardInput{}
 		in.Billing = nil
@@ -462,7 +483,7 @@ func (a *App) launchPayment(id, attempt string, in paymentInput, ttl int) {
 					if event.Code == "network_verified" {
 						closePhase("completed", "")
 					} else {
-						p := map[string]string{"opening": "opening", "billing": "billing", "pricing": "pricing", "confirming": "confirming", "approval": "confirming", "network_check": "network", "result_check": "checking"}[event.Code]
+						p := map[string]string{"opening": "opening", "billing": "billing", "card_prepare": "card_prepare", "pricing": "pricing", "confirming": "confirming", "approval": "confirming", "network_check": "network", "result_check": "checking"}[event.Code]
 						if p != "" {
 							closePhase("completed", "")
 							phase = p
@@ -480,7 +501,7 @@ func (a *App) launchPayment(id, attempt string, in paymentInput, ttl int) {
 						return
 					}
 					if in.AutoConfirm {
-						if !a.paymentEnabled(ctx) || a.authorizeSubscriptionQuote(ctx, id, attempt, event, in.MaxAmount, in.Currency) != nil {
+						if !a.paymentExecutorEnabled(ctx, in.Executor) || a.authorizeSubscriptionQuote(ctx, id, attempt, event, in.MaxAmount, in.Currency) != nil {
 							a.finishPayment(ctx, id, attempt, paymentEvent{State: "failed", Code: "payment_limit_exceeded"})
 							return
 						}
@@ -801,7 +822,7 @@ func (a *App) checkPayment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 	cfg := a.config(ctx, "payment")
-	if !a.paymentEnabled(ctx) {
+	if !a.orderPaymentEnabled(ctx, id) {
 		fail(w, 409, "付款运行环境不可用")
 		return
 	}

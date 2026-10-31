@@ -10,24 +10,24 @@ import (
 	"time"
 )
 
-func TestPostPaymentRefreshBeforeActivationAndCancellation(t *testing.T) {
+func TestPostPaymentReferenceActivationAndCancellation(t *testing.T) {
 	cases := []struct {
 		mode, sequence, activation, renewal string
 	}{
-		{"success", "refresh,read1,refresh,read2,cancel2,read2", "active", "disabled"},
-		{"activation_401", "refresh,read1", "review", "review"},
-		{"expired_at", "refresh,read1,refresh,read2,cancel2,read2", "active", "disabled"},
-		{"keep", "refresh,read1", "active", "kept"},
-		{"keep_401", "refresh,read1", "review", "kept"},
-		{"cancel_already_sent", "refresh,read1,refresh,read2", "active", "disabled"},
-		{"refresh_401", "refresh,read1,refresh", "active", "review"},
-		{"refresh_403", "refresh,read1,refresh", "active", "review"},
-		{"wrong_account", "refresh,read1,refresh", "active", "review"},
-		{"activation_refresh_401", "refresh", "review", "review"},
-		{"activation_refresh_403", "refresh", "review", "review"},
-		{"activation_wrong_account", "refresh", "review", "review"},
-		{"activation_403", "refresh,read1", "review", "review"},
-		{"activation_pending", "refresh,read1", "review", "review"},
+		{"success", "read0,refresh,read1,cancel1,read1", "active", "disabled"},
+		{"activation_401", "read0,refresh,read1,refresh,read2,cancel2,read2", "active", "disabled"},
+		{"expired_at", "read0,refresh,read1,refresh,read2,cancel2,read2", "active", "disabled"},
+		{"keep", "read0", "active", "kept"},
+		{"keep_401", "read0,refresh,read1", "active", "kept"},
+		{"cancel_already_sent", "read0,refresh,read1", "active", "disabled"},
+		{"refresh_401", "read0,refresh", "active", "review"},
+		{"refresh_403", "read0,refresh", "active", "review"},
+		{"wrong_account", "read0,refresh", "active", "review"},
+		{"activation_refresh_401", "read0,refresh", "review", "review"},
+		{"activation_refresh_403", "read0,refresh", "review", "review"},
+		{"activation_wrong_account", "read0,refresh", "review", "review"},
+		{"activation_403", "read0", "review", "review"},
+		{"activation_pending", "read0", "review", "review"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
@@ -70,8 +70,8 @@ func TestPostPaymentRefreshBeforeActivationAndCancellation(t *testing.T) {
 						if err := h.a.DB.QueryRow(ctx, "SELECT state FROM payment_runs WHERE order_id=$1", id).Scan(&paid); err != nil || paid != "succeeded" {
 							t.Fatal("refresh ran before payment success", err, paid)
 						}
-						if reads != refreshes-1 || cancels != 0 || r.Method != "GET" || r.Header.Get("Authorization") != "" {
-							t.Fatal("refresh must precede activation and cancellation reads")
+						if reads != refreshes || cancels != 0 || r.Method != "GET" || r.Header.Get("Authorization") != "" {
+							t.Fatal("refresh must follow a read and precede cancellation")
 						}
 						if r.URL.RawQuery != "refresh=true&reason=token_expired" || r.Header.Get("X-Openai-Target-Path") != "/api/auth/session" || r.Header.Get("X-Openai-Target-Route") != "/api/auth/session" {
 							t.Fatal("refresh request no longer matches the official session route")
@@ -80,14 +80,14 @@ func TestPostPaymentRefreshBeforeActivationAndCancellation(t *testing.T) {
 						if err != nil || cookie.Value != in.SessionToken {
 							t.Fatal("refresh cookie missing")
 						}
-						if tc.mode == "refresh_401" && refreshes == 2 || tc.mode == "activation_refresh_401" {
+						if tc.mode == "refresh_401" && refreshes == 1 || tc.mode == "activation_refresh_401" {
 							return providerResponse(401, M{"error": "rejected"}), nil
 						}
-						if tc.mode == "refresh_403" && refreshes == 2 || tc.mode == "activation_refresh_403" {
+						if tc.mode == "refresh_403" && refreshes == 1 || tc.mode == "activation_refresh_403" {
 							return providerResponse(403, M{"error": "rejected"}), nil
 						}
 						fresh := testSession(in.Email)
-						if tc.mode == "wrong_account" && refreshes == 2 || tc.mode == "activation_wrong_account" {
+						if tc.mode == "wrong_account" && refreshes == 1 || tc.mode == "activation_wrong_account" {
 							fresh["account"] = M{"id": "other-account"}
 						} else {
 							generation++
@@ -126,7 +126,7 @@ func TestPostPaymentRefreshBeforeActivationAndCancellation(t *testing.T) {
 					}
 					sequence = append(sequence, fmt.Sprint("read", generation))
 					reads++
-					if reads == 1 && (tc.mode == "activation_401" || tc.mode == "keep_401") {
+					if reads == 1 && (tc.mode == "activation_401" || tc.mode == "keep_401" || tc.mode == "expired_at" || strings.HasPrefix(tc.mode, "activation_refresh_") || tc.mode == "activation_wrong_account") {
 						return providerResponse(401, M{"error": M{"code": "token_expired"}}), nil
 					}
 					if tc.mode == "activation_403" {

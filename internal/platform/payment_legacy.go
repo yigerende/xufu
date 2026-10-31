@@ -13,17 +13,18 @@ import (
 )
 
 type legacyPayment struct {
-	in            paymentInput
-	cp            legacyPaymentCheckpoint
-	client        *http.Client
-	events        chan paymentEvent
-	commands      chan paymentCommand
-	cancel        context.CancelFunc
-	ctx           context.Context
-	custom        bool
-	entity        string
-	sent          bool
-	latest, quote *legacyPaymentSnapshot
+	in             paymentInput
+	cp             legacyPaymentCheckpoint
+	client         *http.Client
+	events         chan paymentEvent
+	commands       chan paymentCommand
+	cancel         context.CancelFunc
+	ctx            context.Context
+	custom         bool
+	entity         string
+	hostedConfigID string
+	sent           bool
+	latest, quote  *legacyPaymentSnapshot
 }
 
 func (p *legacyPayment) Events() <-chan paymentEvent { return p.events }
@@ -166,17 +167,25 @@ func (p *legacyPayment) run() error {
 		}
 		p.latest = s
 	} else {
-		init, e := p.stripe(prepareCtx, "POST", "/payment_pages/"+id+"/init", url.Values{"browser_locale": {"en-US"}, "browser_timezone": {"UTC"}, "eid": {"NA"}, "redirect_type": {"url"}}, "opening")
+		initForm := url.Values{"browser_locale": {"en-US"}, "browser_timezone": {"UTC"}, "eid": {"NA"}, "redirect_type": {"url"}}
+		if !p.custom {
+			initForm.Set("browser_locale", "zh-CN")
+			initForm.Set("browser_timezone", "Asia/Shanghai")
+		}
+		init, e := p.stripe(prepareCtx, "POST", "/payment_pages/"+id+"/init", initForm, "opening")
 		if e != nil {
+			return e
+		}
+		if e = p.observeHostedPage(init); e != nil {
 			return e
 		}
 		p.cp.EID = str(init, "eid")
 		if p.cp.EID == "" {
 			p.cp.EID = "NA"
 		}
-		// Init may contain an Elements session ID. Only the original page GET
-		// is used for checkout identity, tax and payment evidence.
-		s, e := p.read(prepareCtx)
+		// The captured init and tax POSTs return the full Checkout page. Validate
+		// session_id (not Elements' id) and consume that response directly.
+		s, e := p.hostedPageResponse(prepareCtx, init)
 		if e != nil {
 			return e
 		}
@@ -185,18 +194,7 @@ func (p *legacyPayment) run() error {
 			return errors.New("already_paid")
 		}
 		p.stage("billing")
-		form := url.Values{"eid": {p.cp.EID}}
-		for k, v := range p.address() {
-			form.Set("tax_region["+k+"]", v.(string))
-		}
-		updated, e := p.stripe(prepareCtx, "POST", "/payment_pages/"+id, form, "billing")
-		if e != nil {
-			return e
-		}
-		if eid := str(updated, "eid"); eid != "" {
-			p.cp.EID = eid
-		}
-		s, e = p.waitTaxQuote(prepareCtx)
+		s, e = p.hostedTaxQuote(prepareCtx)
 		if e != nil {
 			return e
 		}
@@ -232,7 +230,7 @@ func (p *legacyPayment) run() error {
 	if strings.HasPrefix(id, "oaics_") {
 		current, err = p.taxes(resultCtx)
 	} else {
-		current, err = p.read(resultCtx)
+		current, err = p.hostedTaxQuote(resultCtx)
 	}
 	if err != nil {
 		return err
@@ -241,7 +239,11 @@ func (p *legacyPayment) run() error {
 	if current.Amount != p.quote.Amount || current.Currency != p.quote.Currency || !current.TaxReady || !current.Open || current.Attempted {
 		return errors.New("amount_changed")
 	}
-	p.stage("confirming")
+	// Persist the latest EID/page identity before any irreversible request.
+	if err = p.save(resultCtx); err != nil {
+		return err
+	}
+	p.stage("card_prepare")
 	if strings.HasPrefix(id, "oaics_") {
 		err = p.confirmCustom(resultCtx)
 	} else {
@@ -327,6 +329,11 @@ func (p *legacyPayment) cardForm(prefix string) url.Values {
 	return f
 }
 func (p *legacyPayment) read(ctx context.Context) (*legacyPaymentSnapshot, error) {
+	if !p.custom && p.cp.PageID != "" && (p.sent || p.in.Mode == "check") {
+		if snapshot, err := p.readHostedPoll(ctx); err != nil || snapshot != nil {
+			return snapshot, err
+		}
+	}
 	if p.cp.Secret != "" {
 		m := legacySecret.FindStringSubmatch(p.cp.Secret)
 		if len(m) != 2 || m[1] != p.cp.IntentID {
@@ -342,7 +349,16 @@ func (p *legacyPayment) read(ctx context.Context) (*legacyPaymentSnapshot, error
 	if e != nil {
 		return nil, e
 	}
-	return legacyPageSnapshot(data, p.cp.CheckoutID)
+	snapshot, e := legacyPageSnapshot(data, p.cp.CheckoutID)
+	if e != nil {
+		return nil, e
+	}
+	if p.in.Mode == "prepare" {
+		if e = p.observeHostedPage(data); e != nil {
+			return nil, e
+		}
+	}
+	return snapshot, nil
 }
 func (p *legacyPayment) taxes(ctx context.Context) (*legacyPaymentSnapshot, error) {
 	currency := p.in.Currency
@@ -381,7 +397,9 @@ func (p *legacyPayment) taxes(ctx context.Context) (*legacyPaymentSnapshot, erro
 	return &legacyPaymentSnapshot{Amount: n, Currency: c, TaxReady: true, Open: true, Evidence: &paymentEvidence{CheckoutID: p.cp.CheckoutID, Status: "pending", Currency: c}}, nil
 }
 func (p *legacyPayment) confirmPage(ctx context.Context) error {
-	pm, e := p.stripe(ctx, "POST", "/payment_methods", p.cardForm(""), "billing")
+	form := p.cardForm("")
+	p.addHostedAttribution(form)
+	pm, e := p.stripe(ctx, "POST", "/payment_methods", form, "card_prepare")
 	p.in.Card = cardInput{}
 	if e != nil {
 		return e
@@ -394,19 +412,41 @@ func (p *legacyPayment) confirmPage(ctx context.Context) error {
 		return e
 	}
 	f := url.Values{"payment_method": {id}, "expected_amount": {strconv.FormatInt(p.quote.Amount, 10)}, "expected_payment_method_type": {"card"}, "eid": {p.cp.EID}, "_stripe_version": {p.version()}}
-	p.sent = true
-	p.emit(paymentEvent{Type: "submitted"})
+	p.addHostedAttribution(f)
+	if !p.custom {
+		f.Set("link_brand", "link")
+	}
 	data, e := p.stripe(ctx, "POST", "/payment_pages/"+p.cp.CheckoutID+"/confirm", f, "confirming")
 	if e != nil {
 		return e
 	}
 	p.latest, e = legacyPageSnapshot(data, p.cp.CheckoutID)
-	return e
+	if e != nil {
+		return e
+	}
+	if !p.custom {
+		if e = p.observeHostedPage(data); e != nil {
+			return e
+		}
+		intent := legacyMap(data["payment_intent"])
+		if id := str(intent, "id"); id != "" {
+			p.cp.IntentID = id
+			if secret := str(intent, "client_secret"); secret != "" {
+				m := legacySecret.FindStringSubmatch(secret)
+				if len(m) != 2 || m[1] != id {
+					return errors.New("invalid_response")
+				}
+				p.cp.Secret = secret
+			}
+		}
+		return p.save(ctx)
+	}
+	return nil
 }
 func (p *legacyPayment) confirmCustom(ctx context.Context) error {
 	f := p.cardForm("payment_method_data")
 	f.Set("setup_future_usage", "off_session")
-	token, e := p.stripe(ctx, "POST", "/confirmation_tokens", f, "billing")
+	token, e := p.stripe(ctx, "POST", "/confirmation_tokens", f, "card_prepare")
 	p.in.Card = cardInput{}
 	if e != nil {
 		return e
@@ -418,8 +458,6 @@ func (p *legacyPayment) confirmCustom(ctx context.Context) error {
 	if e = p.guard(ctx); e != nil {
 		return e
 	}
-	p.sent = true
-	p.emit(paymentEvent{Type: "submitted"})
 	data, e := p.request(ctx, "POST", checkoutEndpoint+"/confirm", nil, M{"checkout_session_id": p.cp.CheckoutID, "confirm_token": id, "selected_payment_method_type": "card"}, "confirming")
 	if e != nil {
 		return e

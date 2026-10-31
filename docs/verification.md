@@ -1,3 +1,49 @@
+## 2026-10-31 12:47 第三套旧协议与完整HAR，仅独立本地
+
+- 完整HAR 464请求／1个Checkout，SHA256 19f981af03c760ffa545121591ab70fe9a2a5121b93c19873797c56a5a8fa11c。confirm为requires_action，经verify_challenge200后同单poll双succeeded；verify响应正文未捕获。普通PM字段19/24、confirm12/18，动态SDK环境/验证字段不伪造，不能称全参数等价或真实付款已测试。
+- 新增legacy_protocol第三整套，旧提链＋HTTP；payment_runs.executor受理冻结，配置变动/幂等/重启保持。HTTP完整init/税价响应、最新同单EID/config、一次confirm与只读poll、挑战暂停；原账单/IP/长短链/后处理不变。旧浏览器不再见requires_action立即关闭，修正精简poll漏判和准确places资源主机，verify_challenge绑定原PI并校验出口。
+- 针对性后端49.269s通过；最终go test ./...：platform356.134s/cslive1.964s全部通过。Go vet/build、前端check/build通过；53项浏览器及DOM离线回归全通过（127.298s），含SDK后poll成功、异单/未成功拒绝及原付款/IP回归。没有真实外网付款。
+- 两轮空闲检查、before.dump/TOC后12:43:29切换18869为PID5012；PG18868仍PID3168。程序.local/legacy-complete-20261031/xufu-legacy-complete.exe，SHA256 807870DE79EE8ECA6C6D30BE098E7A933578C8E7A54A581A89A82788C53E1928；备份SHA256 18C239E3DD7CCA0F4830AC698E7552D963B454E90690C7A60C9527F776F98E30。
+- 数据库16表：14表既有字段指纹相同（payment_runs仅新增executor默认browser），另外2表各仅清理一个已过期密文：subscription_protocol.checkpoint_enc与order_proxy_sessions.endpoint_enc。已与备份逐字段比对，截止重启前已到期、无有效协议租约，其他字段及记录全同，详见expiry-verification.json。未恢复过期凭据。
+- live/ready/首页/管理员与实际页面验证通过：一个下拉框三项，预览旧协议未保存。当前后台实际保存legacy（旧浏览器），并非较早记录的cslive；已与本次更新前settings完整指纹确认保持。六套餐仍hosted。测试PG18870已停止，旧18860/18862未启动，UI临时登录已退出，私有浏览器已关闭。
+- 完成记录completed.json/ui-verification.json和源快照在.local/legacy-complete-20261031/；更新脚本已执行，禁止重放。未推送GitHub、未更新正式、未新建真实订单。详见docs/legacy-complete-flow-20261031.md。
+
+## 2026-10-31 整套流程单选及本地更新
+
+当前只支持旧旧和新新：单个subscription_flow、拒绝API混搭、迁移保留旧选择/套餐、原订单防重、旧备份浏览器恢复、新协议去掉PreparedCheckout和跨流程授权交接。原SDK待验证改回人工打开入口，旧生效核实按备份先查后按需刷新。原IP/账单/逐套餐规则保持。
+
+完整Go回归加两组旧规则断言修正后的补测、针对性PG回归、61项不同离线浏览器用例（首轮57通过，修正2项并新增2项后4项补测通过）、vet和前端检查/构建通过；18869已更新并通过真实管理页面单选检查。15张业务表一致，另1表仅按既有规则清理1条已过期旧检查点，今日待验证单未变化。没有真实付款试验或正式发布。详细证据见[整套流程](whole-subscription-flows-20261031.md)。
+
+## 2026-10-31 10:40 旧 Hosted 普通请求字段对照（仅本地）
+
+- 原始三份抓包只读解析；字段名样本直接从成功 HAR 提取，不含卡片、账号、配置编号或验证令牌。确认税区更新会改变 config_id；补齐本单最新配置/EID、五项 attribution、link_brand、初始化语言/时区与来源头，Hosted 只用表单版本。Custom 分支保持，未知/成功交易不重付。
+- 新增严格请求契约测试在修改前失败、修改后通过，覆盖最终核价后配置变化、跨单响应、非法上下文、拒绝不重试、请求字段差异及诊断隐私。最终针对性离线回归4.850s、Go vet及Windows构建通过；原数据库集成测试本轮没有配置测试库而跳过，未声称重跑通过。
+- 现场原独立测试应用/数据库都已停止；启动原18868后确认空闲，两轮检查、pg_dump及TOC后启动新18869。PID10236/3168，程序SHA256 `DA53F4F9F02C4D96F319D612BA8FB68BAB0DDC2A329FDF75532818F90298272A`。14张业务表指纹一致，健康/首页/管理员登录退出及首页两项静态资产HTTP200，原配置legacy＋legacy。备份和完成记录 `.local/legacy-har-fix-20261031/`，未启动旧18860/18862。
+- 剩余 SDK/设备/动态验证差异仍为PM缺5项、confirm缺7项，见 `legacy-payment-har-gap-20261030.md`。没有真实付款，没有证实此前400唯一原因，没有GitHub推送或正式更新。
+
+## 2026-10-30 18:38 旧 Hosted 付款版本字段修正（本地）
+
+- 18:29 真实单 IP 门槛已通过，创建 PaymentMethod HTTP400/invalid_request_error，未提交 confirm。对照成功 HAR 修正 Hosted 的 API 版本及缺失的 PaymentMethod 表单 `_stripe_version`；Custom 原版本保持。具体证据和不确定性见 subscription-diagnosis-20261030.md。
+- 添加成功抓包契约回归，原实现测试失败、修正后通过；新增 PM 被拒后仅一次创建、零确认、Sent=false，以及 API 版本诊断固定值/隐私回归。最终旧协议 Hosted/Custom/短链/只读恢复/网络门槛/拒绝重定向/诊断测试共 5.041s 通过，无数据库跳过或外网请求；vet、Go构建、前端类型检查/构建及diff检查通过。未重跑未受影响的全量 PostgreSQL 回归。
+- 两轮在途空闲检查、pg_dump和TOC验证后，仅替换18869为`.local/legacy-payment-rejection-20261030/xufu-hosted-version.exe`，PID30444，SHA256 `7EE2BF5B76CD8BC8B6321F25859BF9CC37D431CF0B2678CB79885D7442532CB8`。PG18868仍PID31872，14张业务表指纹保持，配置仍legacy＋legacy。新静态资产先复制再切换首页并保留旧资产。
+- live/ready/首页、管理员登录及退出成功，4项前端资产通过认证后逐字节验证；新版本字段与错误分类文案存在。首次附加资产验证的退出请求连接重置，应用PID未变、无panic，随后健康和登录/退出复核通过。结果和备份在`.local/legacy-payment-rejection-20261030/`。
+- 尚未真实付款验证，历史HTTP400原始消息未保存，不能确定版本差异是唯一原因。未创建订单、重开失败单、提交扣款或更新正式；工作区未提交。
+
+## 2026-10-30 18:15 供应商会话适用范围核对（本地）
+
+- 用户要求仅当前 IPRoyal 使用供应商 session。核对确认 `prepareOrderProxy` 原本就只对 `geo.iproyal.com` 追加会话，其他代理只做格式规范化；本轮明确代码注释、操作规则与后台说明，没有伪称改变既有后端行为。所有代理继续整单复用原端点并保留付款前 IP 检查。
+- 新增 9 类普通代理回归，覆盖 HTTP/HTTPS/SOCKS5/SOCKS5h、无认证、静态 IPRoyal、相似域名、原凭据含 session/lifetime 和简写格式。与 IPRoyal 会话、外层代理链测试一起通过（platform 2.253s）；不连接业务数据库、不请求外网。前端类型检查及构建通过。
+- 本地静态资源先复制新资产再切换 index，旧资产保留；管理员认证后验证 4 项资产逐字节一致、最新说明存在、live/ready 200。后台本就执行该规则，不需重启应用或数据库。记录 `.local/proxy-session-scope-20261030/completed.json`；未提交推送或更新正式，未创建订单或付款。
+- 截图对应 18:09:23 创建的 `fd24cef4efcabcfcdfd54d665c2b1a97`，提链基准 `124.107.43.45`，18:10:16 检查报 `proxy_session_changed`；submitted=false、fee_state=released。供应商 session 不能保证实际出口不漂移，本轮没有把这次失败宣称为已修复。
+
+## 2026-10-30 15:34 付款前 IP 校验与旧付款拒绝诊断（本地）
+
+- 四组合的卡片/付款令牌创建、确认/批准前与提链基准比较；新提链采集原代理 IP，旧新交接保留观察回调。相同、IPv6等价、漂移、缺基准、非法响应、HTTP失败、重定向、网络失败、到期、旧租约及探测中撤销均有离线验证。检查不改写基准、不切换代理；普通GET/取消不新增IP门槛，旧核实仍只读。新SDK开始前校验，旧付款始终纯协议。
+- 单独显示准备银行卡付款阶段，只有实际confirm前才发提交轨迹。HTTP400诊断记录白名单type/param/code和固定原因标签，原始message/body/卡号/CVV/授权不保存；数据库持久化及管理员/客户投影隐私检查通过。历史15:02错误细节不可恢复，不能声称已解决真实付款。
+- 针对性隔离PG回归60.657s通过；完整 `go test ./... -count=1`：cslive2.161s、platform325.285s，通过；`go vet ./...`、前端check/build和diff检查通过。测试仅使用离线HTTP/进程替身，未真实付款、续费或解算验证。最初测试数据库启动等待方式中断导致连接拒绝，修正测试启动方式后上述针对性及完整回归均成功，业务数据库未受影响。
+- 本地18869在两轮空闲检查、pg_dump及TOC验证后替换旧PID31296为PID18612；PG18868保持PID31872。14张完整业务表指纹相同，live/ready/首页200、管理员登录/设置验证成功；仍legacy提链＋legacy付款、六套餐hosted。程序SHA256 E6BEDF46E88574E8583A01A3D95A58BE8B9541FD483C18FC325C4BC079768658，启动/备份记录`.local/ip-check-20261030/`。隔离测试PG18870已停止。
+- 本轮未提交推送、未更新正式环境、未启动迁移旧副本18860/18862、未重开终态订单。正式仍为e4fb96d，后续部署以用户指定范围为准。
+
 # 2026-10-30 旧付款纯协议改造：本地验证完成
 
 - 旧 legacy 付款切换为 Go HTTPS 协议执行器，删除旧 Node 浏览器启动入口。Hosted、cs_live 短链及 oaics/原 PI 分支保留原订单；额外验证暂停，恢复只读。保持原账单/代理、长短链配置、四种组合、资金防重和旧付款后主动刷新授权。见 [实现及边界](legacy-protocol-payment.md)。

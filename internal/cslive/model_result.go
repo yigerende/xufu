@@ -27,8 +27,6 @@ type model_CheckoutPrice struct {
 }
 
 type model_CheckoutResult struct {
-	// Private stage handoff only. Never include refreshed credentials in JSON/logs.
-	Session         *model_Session       `json:"-"`
 	CheckoutID      string               `json:"checkout_id"`
 	CheckoutURL     string               `json:"checkout_url"`
 	ProcessorEntity string               `json:"processor_entity"`

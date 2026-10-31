@@ -35,7 +35,7 @@ func legacyTestInput() paymentInput {
 	for i := range key {
 		key[i] ^= 5
 	}
-	return paymentInput{Mode: "prepare", URL: "https://checkout.stripe.com/c/pay/cs_test_Offline#" + base64.StdEncoding.EncodeToString(key), PrepareSeconds: 3, QuoteSeconds: 3, ResultSeconds: 3, ProxyExpiresAt: time.Now().Add(time.Minute).UnixMilli(), Email: "test@example.com", Card: cardInput{Number: "4242424242424242", Month: "12", Year: "2040", CVC: "123"}, Billing: M{"first_name": "Test", "last_name": "User", "line1": "123 Test Street", "city": "Manila", "state": "CA", "postal_code": "90001", "country": "US", "source": "saved"}, Currency: "php"}
+	return paymentInput{CheckExitIP: func(context.Context) error { return nil }, Mode: "prepare", URL: "https://checkout.stripe.com/c/pay/cs_test_Offline#" + base64.StdEncoding.EncodeToString(key), PrepareSeconds: 3, QuoteSeconds: 3, ResultSeconds: 3, ProxyExpiresAt: time.Now().Add(time.Minute).UnixMilli(), Email: "test@example.com", Card: cardInput{Number: "4242424242424242", Month: "12", Year: "2040", CVC: "123"}, Billing: M{"first_name": "Test", "last_name": "User", "line1": "123 Test Street", "city": "Manila", "state": "CA", "postal_code": "90001", "country": "US", "source": "saved"}, Currency: "php"}
 }
 func legacyCollect(t *testing.T, p *legacyPayment, authorize func(paymentEvent)) paymentEvent {
 	t.Helper()
@@ -66,7 +66,7 @@ func legacyCollect(t *testing.T, p *legacyPayment, authorize func(paymentEvent))
 }
 
 func TestLegacyProtocolHosted(t *testing.T) {
-	for _, scenario := range []string{"success", "page-paid-without-received", "amount-changed", "foreign-checkout", "foreign-currency", "challenge", "approval", "decline", "timeout", "tax-incomplete", "expired-proxy", "guard-revoked", "save-failed"} {
+	for _, scenario := range []string{"success", "page-paid-without-received", "method-rejected", "amount-changed", "foreign-checkout", "foreign-currency", "challenge", "approval", "decline", "timeout", "tax-incomplete", "expired-proxy", "guard-revoked", "save-failed"} {
 		t.Run(scenario, func(t *testing.T) {
 			in := legacyTestInput()
 			var calls, confirms, methods atomic.Int32
@@ -111,6 +111,8 @@ func TestLegacyProtocolHosted(t *testing.T) {
 					}
 					changed = true
 					return legacyReply(200, M{}), nil
+				case "GET /v1/payment_pages/cs_test_Offline/poll":
+					return legacyReply(200, M{"id": "ppage_Test", "session_id": "cs_test_Offline", "state": "active", "payment_object_status": "processing"}), nil
 				case "GET /v1/payment_pages/cs_test_Offline":
 					n := int64(1000)
 					if changed {
@@ -126,15 +128,27 @@ func TestLegacyProtocolHosted(t *testing.T) {
 					return legacyReply(200, page), nil
 				case "POST /v1/payment_methods":
 					methods.Add(1)
+					// Contract from the user's successful hosted capture, not the
+					// newer custom-checkout client. Hosted uses the form version only.
+					if r.Form.Get("_stripe_version") != "2020-08-27;custom_checkout_beta=v1" || r.Header.Get("Stripe-Version") != "" {
+						t.Error("hosted payment method uses a different API contract than the capture")
+						return legacyReply(400, M{"error": M{"type": "invalid_request_error"}}), nil
+					}
 					if !authorized.Load() {
 						t.Error("card tokenized before authorization")
 					}
 					if r.Form.Get("card[number]") != in.Card.Number || r.Form.Get("billing_details[address][postal_code]") != "90001" {
 						t.Error("card/billing missing")
 					}
+					if scenario == "method-rejected" {
+						return legacyReply(400, M{"error": M{"type": "invalid_request_error"}}), nil
+					}
 					return legacyReply(200, M{"id": "pm_Test"}), nil
 				case "POST /v1/payment_pages/cs_test_Offline/confirm":
 					confirms.Add(1)
+					if r.Form.Get("_stripe_version") != "2020-08-27;custom_checkout_beta=v1" || r.Header.Get("Stripe-Version") != "" {
+						t.Error("hosted confirmation changed API contract after creating the payment method")
+					}
 					if !authorized.Load() || r.Form.Get("expected_amount") != "1080" || r.Form.Get("payment_method") != "pm_Test" {
 						t.Error("wrong confirmation")
 					}
@@ -182,7 +196,7 @@ func TestLegacyProtocolHosted(t *testing.T) {
 				want = "action_required"
 			case "decline":
 				want = "declined"
-			case "amount-changed", "tax-incomplete", "expired-proxy", "guard-revoked", "save-failed":
+			case "method-rejected", "amount-changed", "tax-incomplete", "expired-proxy", "guard-revoked", "save-failed":
 				want = "failed"
 			}
 			if e.State != want {
@@ -191,8 +205,11 @@ func TestLegacyProtocolHosted(t *testing.T) {
 			if confirms.Load() > 1 {
 				t.Fatal("duplicate confirmation")
 			}
-			if want == "failed" && (confirms.Load() != 0 || methods.Load() != 0) {
+			if want == "failed" && scenario != "method-rejected" && (confirms.Load() != 0 || methods.Load() != 0) {
 				t.Fatal("unsafe preparation submitted")
+			}
+			if scenario == "method-rejected" && (methods.Load() != 1 || confirms.Load() != 0 || e.Sent || e.Code != "request_rejected") {
+				t.Fatal("payment method rejection retried or submitted a payment")
 			}
 			if scenario == "expired-proxy" && calls.Load() != 0 {
 				t.Fatal("expired proxy contacted provider")
@@ -368,6 +385,7 @@ func TestLegacyProtocolDoesNotFollowRedirect(t *testing.T) {
 
 func TestLegacyProtocolDatabaseFenceAndPrivacy(t *testing.T) {
 	h, id, _ := paymentFixture(t)
+	mockOrderIP(t, h.a, "203.0.113.2")
 	ctx := context.Background()
 	input := legacyTestInput()
 	link, err := h.a.encrypt(input.URL)
@@ -392,6 +410,8 @@ func TestLegacyProtocolDatabaseFenceAndPrivacy(t *testing.T) {
 				return legacyReply(200, M{"eid": "NA"}), nil
 			case "POST /v1/payment_pages/cs_test_Offline":
 				return legacyReply(200, M{}), nil
+			case "GET /v1/payment_pages/cs_test_Offline/poll":
+				return legacyReply(200, M{"id": "ppage_Test", "session_id": "cs_test_Offline", "state": "active", "payment_object_status": "processing"}), nil
 			case "GET /v1/payment_pages/cs_test_Offline":
 				return legacyReply(200, legacyTestPage("cs_test_Offline", 1080, false)), nil
 			case "POST /v1/payment_methods":

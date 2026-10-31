@@ -14,10 +14,18 @@ import (
 )
 
 var safeProviderCodes = map[string]bool{
+	"parameter_missing": true, "parameter_unknown": true, "parameter_invalid_empty": true, "parameter_invalid_integer": true, "parameter_invalid_string_blank": true,
+	"invalid_expiry_month": true, "invalid_expiry_year": true, "invalid_cvc": true, "invalid_number": true, "email_invalid": true, "api_key_expired": true,
 	"account_deactivated": true, "account_deleted": true, "invalid_workspace_selected": true, "token_expired": true, "invalid_token": true, "RefreshAccessTokenError": true,
 	"subscription_not_found": true, "card_declined": true, "expired_card": true, "incorrect_cvc": true, "incorrect_number": true, "incorrect_zip": true,
 	"insufficient_funds": true, "do_not_honor": true, "generic_decline": true, "authentication_required": true, "payment_intent_authentication_failure": true,
 	"payment_intent_unexpected_state": true, "billing_automatic_tax_unrecognized_customer_location": true, "rate_limit_exceeded": true, "processing_error": true,
+}
+
+var paymentErrorEnums = map[string]string{
+	"provider_error_type": "invalid_request_error card_error api_error authentication_error idempotency_error rate_limit_error permission_error",
+	"provider_reason":     "raw_card_api_restricted secret_key_required invalid_api_version",
+	"provider_param":      "type card card[number] card[exp_month] card[exp_year] card[cvc] billing_details billing_details[name] billing_details[email] billing_details[address] billing_details[address][line1] billing_details[address][line2] billing_details[address][city] billing_details[address][state] billing_details[address][postal_code] billing_details[address][country] key _stripe_version payment_user_agent payment_method payment_method_data confirmation_token client_secret expected_amount expected_payment_method_type setup_future_usage return_url eid client_attribution_metadata client_attribution_metadata[client_session_id] client_attribution_metadata[checkout_session_id] client_attribution_metadata[checkout_config_id] client_attribution_metadata[merchant_integration_source] client_attribution_metadata[merchant_integration_version] client_attribution_metadata[merchant_integration_subtype] client_attribution_metadata[payment_method_selection_flow] guid muid sid link_brand rv_timestamp passive_captcha_token passive_captcha_ekey",
 }
 
 var merchantDiagnosticEnums = map[string]string{
@@ -115,7 +123,7 @@ func safeDiagnosticDetails(input M) M {
 		case "request_kind":
 			if s, ok := v.(string); ok {
 				switch s {
-				case "exit_probe", "checkout_create", "checkout_initialize", "session_read", "account_read", "subscription_read", "other":
+				case "exit_probe", "checkout_create", "checkout_initialize", "session_read", "account_read", "subscription_read", "payment_method_create", "payment_token_create", "payment_confirm", "payment_read", "billing_update", "other":
 					out[k] = s
 				}
 			}
@@ -195,6 +203,16 @@ func safeDiagnosticDetails(input M) M {
 			}
 		case "provider_code", "decline_code":
 			if s, ok := v.(string); ok && safeProviderCodes[s] {
+				out[k] = s
+			}
+		case "stripe_api_version":
+			// Versions are application constants. Never expose an upstream-supplied
+			// value or relax the whitespace filter for other diagnostic fields.
+			if s, ok := v.(string); ok && (s == legacyHostedStripeVersion || s == legacyCustomStripeVersion) {
+				out[k] = s
+			}
+		case "provider_error_type", "provider_param", "provider_reason":
+			if s, ok := v.(string); ok && s != "" && !strings.ContainsAny(s, " \t\r\n") && strings.Contains(" "+paymentErrorEnums[k]+" ", " "+s+" ") {
 				out[k] = s
 			}
 		case "response_kind":

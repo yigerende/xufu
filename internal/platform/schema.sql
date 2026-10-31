@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS payment_runs (
 CREATE INDEX IF NOT EXISTS payment_runs_active ON payment_runs(state,expires_at);
 ALTER TABLE payment_runs ADD COLUMN IF NOT EXISTS approval_started boolean NOT NULL DEFAULT false;
 ALTER TABLE payment_runs ADD COLUMN IF NOT EXISTS legacy_checkpoint_enc text NOT NULL DEFAULT '';
+ALTER TABLE payment_runs ADD COLUMN IF NOT EXISTS executor text NOT NULL DEFAULT 'browser' CHECK (executor IN ('browser','legacy_http'));
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS workflow text NOT NULL DEFAULT 'checkout';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS keep_renewal boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS subscription_runs (

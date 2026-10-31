@@ -1,8 +1,11 @@
 package platform
 
 const (
-	subscriptionFlowLegacy = "legacy"
-	subscriptionFlowCSLive = "cslive"
+	subscriptionFlowLegacy         = "legacy"
+	subscriptionFlowCSLive         = "cslive"
+	subscriptionFlowLegacyProtocol = "legacy_protocol"
+	paymentExecutorBrowser         = "browser"
+	paymentExecutorLegacyHTTP      = "legacy_http"
 )
 
 // Existing installations keep the currently deployed flow until an admin saves
@@ -15,17 +18,24 @@ func configuredSubscriptionFlow(cfg M) string {
 	return str(cfg, "subscription_flow")
 }
 
-// The checkout stage and payment/post-payment stage can be selected separately.
-// Before the split is first saved, preserve the installation's existing choice.
+// One selection owns the entire flow, including the standalone checkout tool.
+// Persisted historical order fields remain independent for read-only recovery.
 func configuredCheckoutFlow(cfg M) string {
-	if _, present := cfg["checkout_flow"]; !present {
-		return configuredSubscriptionFlow(cfg)
+	if configuredSubscriptionFlow(cfg) == subscriptionFlowLegacyProtocol {
+		return subscriptionFlowLegacy
 	}
-	return str(cfg, "checkout_flow")
+	return configuredSubscriptionFlow(cfg)
 }
 
 func validSubscriptionFlow(flow string) bool {
-	return flow == subscriptionFlowLegacy || flow == subscriptionFlowCSLive
+	return flow == subscriptionFlowLegacy || flow == subscriptionFlowCSLive || flow == subscriptionFlowLegacyProtocol
+}
+
+func subscriptionPaymentExecutor(flow string) string {
+	if flow == subscriptionFlowLegacyProtocol {
+		return paymentExecutorLegacyHTTP
+	}
+	return paymentExecutorBrowser
 }
 
 func configuredCheckoutType(cfg M) string {

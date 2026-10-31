@@ -8,12 +8,8 @@ import (
 )
 
 func TestReferenceHostedPayAndRecovery(t *testing.T) {
-	for _, mode := range []string{"prepared", "prepared_unknown", "prepared_action_required", "direct", "custom_direct", "custom_init", "missing_mode", "invalid_mode", "missing", "short", "other_order", "oaics", "upgrade", "unknown", "action_required", "declined", "authorized"} {
+	for _, mode := range []string{"direct", "custom_direct", "custom_init", "missing_mode", "invalid_mode", "missing", "short", "other_order", "oaics", "upgrade", "unknown", "action_required", "declined", "authorized"} {
 		t.Run(mode, func(t *testing.T) {
-			imported := strings.HasPrefix(mode, "prepared")
-			if mode != "prepared" {
-				mode = strings.TrimPrefix(mode, "prepared_")
-			}
 			flow, tr, saved := flowFixture(t, true)
 			long := "https://pay.openai.com/c/pay/cs_live_Fixture#" + strings.Repeat("a", 260)
 			creates, inits, cards, confirms, approvals, cancels := 0, 0, 0, 0, 0, 0
@@ -36,14 +32,8 @@ func TestReferenceHostedPayAndRecovery(t *testing.T) {
 					r.Headers.Add("Set-Cookie", "oai-did=11111111-1111-4111-8111-111111111111; Path=/; Secure")
 					return r, nil
 				case "/api/auth/session":
-					if imported && confirms == 0 {
-						t.Fatal("import repeated pre-checkout refresh")
-					}
 					return response(200, protocol_Map{"accessToken": "new-at", "account": protocol_Map{"id": "account"}}), nil
 				case "/backend-api/accounts/check/v4-2023-04-27":
-					if imported {
-						t.Fatal("import repeated account precheck")
-					}
 					plan := "free"
 					if mode == "upgrade" {
 						plan = "plus"
@@ -71,7 +61,7 @@ func TestReferenceHostedPayAndRecovery(t *testing.T) {
 					return response(200, protocol_Map{"guid": "fixture-guid", "muid": "fixture-muid", "sid": "fixture-sid"}), nil
 				case "/backend-api/payments/checkout":
 					creates++
-					if imported || recovering || creates != 1 {
+					if recovering || creates != 1 {
 						t.Fatal("checkout recreated")
 					}
 					payload, _ := protocol_CompactJSON(opts.Body)
@@ -181,13 +171,8 @@ func TestReferenceHostedPayAndRecovery(t *testing.T) {
 				}
 				return
 			}
-			var prepared *PreparedCheckout
 			wantCreates := 1
-			if imported {
-				wantCreates = 0
-				prepared = &PreparedCheckout{CheckoutID: "cs_live_Fixture", URL: long, ProcessorEntity: "openai_llc", PublishableKey: "pk_test_Fixture"}
-			}
-			result, err := flow.client.Pay(context.Background(), session, Card{Number: "4242424242424242", CVC: "123", ExpMonth: "12", ExpYear: "2035"}, PayOptions{PreparedCheckout: prepared, Country: "PH", Plan: plan, CheckoutType: checkoutType, Billing: billing, ApprovePayment: func(amount int64, currency string) (bool, error) {
+			result, err := flow.client.Pay(context.Background(), session, Card{Number: "4242424242424242", CVC: "123", ExpMonth: "12", ExpYear: "2035"}, PayOptions{Country: "PH", Plan: plan, CheckoutType: checkoutType, Billing: billing, ApprovePayment: func(amount int64, currency string) (bool, error) {
 				approvals++
 				if amount != 1500 || currency != "PHP" {
 					t.Fatal("incorrect hosted quote")

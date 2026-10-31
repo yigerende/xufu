@@ -133,7 +133,13 @@ func TestRefreshBoundedRecoveryAndLegacyInput(t *testing.T) {
 			}
 			return providerResponse(200, testSession(in.Email)), nil
 		})}}
-		if !errors.Is(s.prepare(), ErrLeaseLost) || requests != 1 {
+		// Activation follows the backup: query first, refresh on an explicit
+		// auth failure. Exercise that refresh boundary directly here.
+		prepare := s.prepare
+		if purpose == "activation" {
+			prepare = s.refresh
+		}
+		if !errors.Is(prepare(), ErrLeaseLost) || requests != 1 {
 			t.Fatal("lost lease ignored", purpose, requests)
 		}
 	}
@@ -213,7 +219,7 @@ func paidRefreshOrder(t *testing.T, keep bool) (*harness, string) {
 	return h, id
 }
 
-func TestPaidActivationRetryRefreshAndKeep(t *testing.T) {
+func TestPaidActivationQueriesBeforeRefreshAndKeepsRenewal(t *testing.T) {
 	ctx := context.Background()
 	h, id := paidRefreshOrder(t, true)
 	var email, enc string
@@ -261,7 +267,7 @@ func TestPaidActivationRetryRefreshAndKeep(t *testing.T) {
 			t.Fatal("activation failed", status, activation)
 		}
 	}
-	if refreshes != 2 || reads != 2 || writes != 0 {
+	if refreshes != 0 || reads != 2 || writes != 0 {
 		t.Fatal("wrong calls", refreshes, reads, writes)
 	}
 	paymentBalances(t, h, 90000, 0)
