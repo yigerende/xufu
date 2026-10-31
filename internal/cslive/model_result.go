@@ -27,6 +27,9 @@ type model_CheckoutPrice struct {
 }
 
 type model_CheckoutResult struct {
+	// Private first-party authorization for a caller that continues on the
+	// official checkout page. Never includes a payment/fingerprint checkpoint.
+	Session         *model_Session       `json:"-"`
 	CheckoutID      string               `json:"checkout_id"`
 	CheckoutURL     string               `json:"checkout_url"`
 	ProcessorEntity string               `json:"processor_entity"`

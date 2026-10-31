@@ -371,7 +371,7 @@ func (a *App) executeCheckout(ctx context.Context, j *Job) {
 
 func (a *App) runCheckoutFlow(ctx context.Context, j *Job, endpoint string, in checkoutInput, flow, workflow string) (checkoutOutput, error) {
 	if flow == subscriptionFlowCSLive {
-		return a.generateProtocolCheckout(ctx, j, endpoint, in)
+		return a.generateProtocolCheckout(ctx, j, endpoint, in, workflow == "subscription")
 	}
 	if flow != subscriptionFlowLegacy {
 		return checkoutOutput{}, checkoutFailure("preparation_failed", false, false)

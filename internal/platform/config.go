@@ -97,7 +97,7 @@ func validateConfig(key string, v M) error {
 			return bad("结账链接类型须选择长链或短链")
 		}
 		if _, present := v["subscription_flow"]; present && !validSubscriptionFlow(str(v, "subscription_flow")) {
-			return bad("请选择旧浏览器、旧协议或新流程")
+			return bad("请选择有效的完整订阅流程")
 		}
 		if _, present := v["checkout_flow"]; present && !validSubscriptionFlow(str(v, "checkout_flow")) {
 			return bad("结账链接生成流程须选择旧流程或新流程")
@@ -324,7 +324,7 @@ func (a *App) saveSettings(w http.ResponseWriter, r *http.Request) {
 				auditMessage += "；历史兼容字段由" + labels[before] + "改为" + labels[after] + "，实际执行以套餐配置为准"
 			}
 			if before, after := configuredSubscriptionFlow(previous), configuredSubscriptionFlow(v); before != after {
-				labels := map[string]string{subscriptionFlowLegacy: "旧流程（浏览器）", subscriptionFlowLegacyProtocol: "旧流程（协议）", subscriptionFlowCSLive: "新流程"}
+				labels := map[string]string{subscriptionFlowLegacy: "旧流程（浏览器）", subscriptionFlowLegacyProtocol: "旧流程（协议）", subscriptionFlowCSLive: "新流程", subscriptionFlowCSLiveBrowser: "新提链＋旧浏览器付款"}
 				auditMessage += "；完整订阅流程由" + labels[before] + "切换为" + labels[after] + "，订阅与独立提链的新申请生效"
 			}
 			b, _ = json.Marshal(v)

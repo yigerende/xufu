@@ -208,6 +208,7 @@ func (t *gptpay_transaction) createCheckout(kind string, withPrice bool) (result
 	}
 	result.ErrorCode = protocol_FlowErrorCode(err)
 	if err == nil {
+		result.Session = &model_Session{AccessToken: t.cp.AccessToken, SessionToken: t.cp.SessionToken, Cookies: t.cp.Cookies, AccountID: t.cp.AccountID, Email: t.cp.Email}
 		t.progress.emit(model_ProgressStageCheckout, model_ProgressSucceeded, "")
 	}
 	t.progress.finish(result.ErrorCode)

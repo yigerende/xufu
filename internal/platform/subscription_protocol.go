@@ -22,7 +22,7 @@ type protocolCardSlot struct {
 func (a *App) subscriptionEnabled(ctx context.Context) bool {
 	cfg := a.config(ctx, "payment")
 	flow := configuredSubscriptionFlow(cfg)
-	return cfg["enabled"] == true && validSubscriptionFlow(configuredCheckoutFlow(cfg)) && validSubscriptionFlow(flow) && (flow != subscriptionFlowLegacy || a.paymentEnabled(ctx))
+	return cfg["enabled"] == true && validSubscriptionFlow(configuredCheckoutFlow(cfg)) && validSubscriptionFlow(flow) && (!subscriptionUsesBrowser(flow) || a.paymentEnabled(ctx))
 }
 
 func (a *App) isProtocolSubscription(ctx context.Context, id string) bool {

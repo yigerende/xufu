@@ -150,7 +150,7 @@ func (a *App) createOrder(w http.ResponseWriter, r *http.Request) {
 			if !validSubscriptionFlow(flow) || full && !validSubscriptionFlow(paymentFlow) {
 				return nil, businessError{409, "订阅办理流程配置无效，请联系运营"}
 			}
-			if full && (paymentConfig["enabled"] != true || (paymentFlow == subscriptionFlowLegacy && !a.paymentEnabled(r.Context()))) {
+			if full && (paymentConfig["enabled"] != true || (subscriptionUsesBrowser(paymentFlow) && !a.paymentEnabled(r.Context()))) {
 				return nil, businessError{409, "订阅付款暂不可用"}
 			}
 			inspectPaymentFlow := ""
@@ -160,7 +160,7 @@ func (a *App) createOrder(w http.ResponseWriter, r *http.Request) {
 			if _, e := inspectSessionForFlows(v.Session, flow, inspectPaymentFlow); e != nil {
 				return nil, e
 			}
-			if full && paymentFlow == subscriptionFlowLegacy && checkoutType == "oaics" {
+			if full && subscriptionUsesBrowser(paymentFlow) && checkoutType == "oaics" {
 				credentials, _, err := sessionCredentials(v.Session, sessionInfo)
 				if err != nil {
 					return nil, err

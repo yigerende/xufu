@@ -56,7 +56,7 @@ func TestCheckoutProductSettingsValidationAndUpgrade(t *testing.T) {
 }
 
 func TestCheckoutProductSelectionBothFlowsAndPages(t *testing.T) {
-	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol} {
+	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol, subscriptionFlowCSLiveBrowser} {
 		for _, workflow := range []string{"checkout", "subscription"} {
 			for _, product := range []string{"pro5x", "pro", "team", "team_premium"} {
 				t.Run(flow+"/"+workflow+"/"+product, func(t *testing.T) {

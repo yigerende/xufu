@@ -4,6 +4,7 @@ const (
 	subscriptionFlowLegacy         = "legacy"
 	subscriptionFlowCSLive         = "cslive"
 	subscriptionFlowLegacyProtocol = "legacy_protocol"
+	subscriptionFlowCSLiveBrowser  = "cslive_browser"
 	paymentExecutorBrowser         = "browser"
 	paymentExecutorLegacyHTTP      = "legacy_http"
 )
@@ -21,14 +22,21 @@ func configuredSubscriptionFlow(cfg M) string {
 // One selection owns the entire flow, including the standalone checkout tool.
 // Persisted historical order fields remain independent for read-only recovery.
 func configuredCheckoutFlow(cfg M) string {
-	if configuredSubscriptionFlow(cfg) == subscriptionFlowLegacyProtocol {
+	switch configuredSubscriptionFlow(cfg) {
+	case subscriptionFlowLegacyProtocol:
 		return subscriptionFlowLegacy
+	case subscriptionFlowCSLiveBrowser:
+		return subscriptionFlowCSLive
 	}
 	return configuredSubscriptionFlow(cfg)
 }
 
 func validSubscriptionFlow(flow string) bool {
-	return flow == subscriptionFlowLegacy || flow == subscriptionFlowCSLive || flow == subscriptionFlowLegacyProtocol
+	return flow == subscriptionFlowLegacy || flow == subscriptionFlowCSLive || flow == subscriptionFlowLegacyProtocol || flow == subscriptionFlowCSLiveBrowser
+}
+
+func subscriptionUsesBrowser(flow string) bool {
+	return flow == subscriptionFlowLegacy || flow == subscriptionFlowCSLiveBrowser
 }
 
 func subscriptionPaymentExecutor(flow string) string {

@@ -1,3 +1,9 @@
+# 2026-10-31 新增第四套：新提链＋旧浏览器付款
+
+用户最新要求新增 `cslive_browser` 完整订阅流程，并测试后推送 GitHub、更新正式 xufu-app。保持单一 payment.subscription_flow 选择；新增选项用 cs-live CreateCheckout 生成原链接，再由既有官方浏览器付款，后续沿用旧订阅生效核实、授权刷新和续费规则。checkout_runs.flow=cslive、payment_runs.executor=browser 且无 subscription_protocol 记录共同固定此路径；历史订单不因后台选择变化改路，既有三套不变。
+
+新提链需要完整 Session；成功提链后仅将已校验同账号的刷新 AT/第一方会话 Cookie 加密保存到原单授权中，不导入付款检查点、设备上下文或另创结账单。独立提链仅生成链接。四套共用原代理/IP门槛、后台账单随机快照、逐套餐长短链及幂等规则；上游提链结果不明停止，不能切换付款器重付。发布保留正式当前选择，不自动替用户切到新增选项。详见 docs/cslive-browser-flow-20261031.md；发布结果以工作区运维 runbook 为准。
+
 # 2026-10-31 新增第三套：旧提链＋HTTP付款
 
 用户最新要求新增第三套，覆盖下方“两套／撤销旧协议”限制。仍只有payment.subscription_flow一个整套选择：legacy旧浏览器、legacy_protocol旧提链＋HTTP、cslive原新流程。第三套checkout_runs.flow=legacy，payment_runs.executor=legacy_http在受理事务冻结；原单、恢复和幂等不读当前配置改路。不再增加PreparedCheckout或新旧交接。独立提链菜单读取同一选择，仅做提链。原IP、正式账单随机快照、逐套餐长短链、套餐核实、Session和续费逻辑保持。

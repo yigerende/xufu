@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"path"
@@ -92,7 +93,7 @@ func (r *protocolCheckoutRun) guardProxy(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) generateProtocolCheckout(ctx context.Context, j *Job, endpoint string, in checkoutInput) (checkoutOutput, error) {
+func (a *App) generateProtocolCheckout(ctx context.Context, j *Job, endpoint string, in checkoutInput, retainAuthorization ...bool) (checkoutOutput, error) {
 	session, err := protocolSession(in)
 	if err != nil {
 		return checkoutOutput{}, checkoutFailure("invalid_session", false, false)
@@ -165,5 +166,43 @@ func (a *App) generateProtocolCheckout(ctx context.Context, j *Job, endpoint str
 	if !valid || u == nil || path.Base(u.Path) != result.CheckoutID || strings.Contains(result.CheckoutURL, session.AccessToken) || strings.Contains(result.CheckoutURL, session.SessionToken) {
 		return checkoutOutput{}, checkoutFailure("checkout_result_unknown", false, run.written || result.CheckoutID != "")
 	}
-	return checkoutOutput{URL: result.CheckoutURL}, nil
+	out := checkoutOutput{URL: result.CheckoutURL}
+	if len(retainAuthorization) > 0 && retainAuthorization[0] {
+		credentials, err := protocolCheckoutCredentials(in, result.Session)
+		if err != nil {
+			// A checkout already exists. Never retry creation after a credential
+			// validation failure or launch the browser with a different account.
+			return checkoutOutput{}, checkoutFailure(providerCode(err), false, true)
+		}
+		out.Credentials = &credentials
+	}
+	return out, nil
+}
+
+func protocolCheckoutCredentials(original checkoutInput, session *cslive.Session) (checkoutInput, error) {
+	if session == nil {
+		return checkoutInput{}, checkoutFailure("invalid_session", false, false)
+	}
+	if session.AccountID != original.AccountID || !strings.EqualFold(session.Email, original.Email) {
+		return checkoutInput{}, checkoutFailure("account_mismatch", false, false)
+	}
+	raw, err := json.Marshal(M{"accessToken": session.AccessToken, "sessionToken": session.SessionToken, "cookies": session.Cookies,
+		"user": M{"email": session.Email}, "account": M{"id": session.AccountID}})
+	if err != nil {
+		return checkoutInput{}, checkoutFailure("invalid_session", false, false)
+	}
+	info, err := inspectSession(raw)
+	if err != nil {
+		return checkoutInput{}, checkoutFailure("invalid_session", false, false)
+	}
+	in, _, err := sessionCredentials(raw, info)
+	if err != nil || browserSessionCookies(in) == "" {
+		return checkoutInput{}, checkoutFailure("invalid_session", false, false)
+	}
+	if in.AccessToken != original.AccessToken {
+		in.RefreshedAt, in.RefreshPurpose = time.Now().UTC(), "checkout"
+	} else {
+		in.RefreshedAt, in.RefreshPurpose = original.RefreshedAt, original.RefreshPurpose
+	}
+	return in, nil
 }

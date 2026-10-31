@@ -12,7 +12,7 @@ func setSubscriptionFlow(t *testing.T, h *harness, flow string) {
 	t.Helper()
 	cfg := h.a.config(context.Background(), "payment")
 	cfg["subscription_flow"] = flow
-	cfg["checkout_flow"] = flow
+	delete(cfg, "checkout_flow")
 	expect(t, h.request("PUT", "/api/admin/settings/payment", cfg, h.admin, nil), 200)
 }
 
@@ -75,7 +75,7 @@ func TestSubscriptionFlowSettingsAndMigration(t *testing.T) {
 }
 
 func TestSubscriptionFlowAdmissionReplayAndPrivacy(t *testing.T) {
-	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol} {
+	for _, flow := range []string{subscriptionFlowLegacy, subscriptionFlowCSLive, subscriptionFlowLegacyProtocol, subscriptionFlowCSLiveBrowser} {
 		for _, route := range []string{"/api/orders", "/api/v1/orders"} {
 			t.Run(flow+route, func(t *testing.T) {
 				h := setupTest(t)
@@ -92,7 +92,7 @@ func TestSubscriptionFlowAdmissionReplayAndPrivacy(t *testing.T) {
 				setSubscriptionFlow(t, h, flow)
 				body := prepareRequest()
 				body["workflow"], body["card"] = "subscription", paymentPrepareBody()["card"]
-				if flow != subscriptionFlowCSLive {
+				if configuredCheckoutFlow(M{"subscription_flow": flow}) != subscriptionFlowCSLive {
 					delete(body["session"].(M), "sessionToken")
 				}
 				headers := map[string]string{"Idempotency-Key": uid()}

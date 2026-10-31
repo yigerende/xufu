@@ -52,7 +52,7 @@ func TestWholeFlowConfigurationMigrationAndValidation(t *testing.T) {
 }
 
 func TestWholeFlowAdmissionAndLinkIsolation(t *testing.T) {
-	for _, payment := range []string{"legacy", "cslive", "legacy_protocol"} {
+	for _, payment := range []string{"legacy", "cslive", "legacy_protocol", "cslive_browser"} {
 		for _, checkout := range []string{configuredCheckoutFlow(M{"subscription_flow": payment})} {
 			t.Run(checkout+"_"+payment, func(t *testing.T) {
 				h := setupTest(t)

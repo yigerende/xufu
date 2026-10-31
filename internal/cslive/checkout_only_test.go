@@ -3,6 +3,7 @@ package cslive
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -98,6 +99,19 @@ func TestStandaloneCheckoutOnlyReturnsRealHostedLink(t *testing.T) {
 			}
 			if inits > 1 {
 				t.Fatal("repeated init")
+			}
+			if result.ErrorCode == "" {
+				if result.Session == nil || result.Session.AccessToken != "new-at" || result.Session.AccountID != "account" || result.Session.Email != "fixture@example.com" {
+					t.Fatal("successful checkout lost refreshed first-party authorization")
+				}
+			} else if result.Session != nil {
+				t.Fatal("failed checkout returned authorization for continuation")
+			}
+			public, _ := json.Marshal(result)
+			for _, text := range []string{string(public), fmt.Sprint(result), fmt.Sprintf("%#v", result)} {
+				if strings.Contains(text, "new-at") || strings.Contains(text, "fixture@example.com") || strings.Contains(text, "access_token") {
+					t.Fatal("private checkout authorization leaked")
+				}
 			}
 		})
 	}
