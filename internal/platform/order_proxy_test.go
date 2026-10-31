@@ -11,11 +11,11 @@ import (
 
 func TestIPRoyalOrderSession(t *testing.T) {
 	for _, raw := range []string{"http://user:secret@geo.iproyal.com:12321", "socks5h://user:secret_country-ph_session-old_lifetime-20m@geo.iproyal.com:12321", "https://user%40mail:pass%3Aword@geo.iproyal.com:12321"} {
-		a, life, e := prepareOrderProxy(raw, "PH")
+		a, life, e := prepareOrderProxy(raw, "PH", proxyVendorIPRoyal, proxyModeDynamic)
 		if e != nil {
 			t.Fatal(e)
 		}
-		b, _, e := prepareOrderProxy(raw, "PH")
+		b, _, e := prepareOrderProxy(raw, "PH", proxyVendorIPRoyal, proxyModeDynamic)
 		if e != nil || a == b {
 			t.Fatal("different orders reused session")
 		}
@@ -29,13 +29,13 @@ func TestIPRoyalOrderSession(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{"http://u:pass@static.iproyal.com:80", "http://u:pass@geo.iproyal.com.evil.test:80"} {
-		got, _, e := prepareOrderProxy(raw, "PH")
+		got, _, e := prepareOrderProxy(raw, "PH", proxyVendorOther, proxyModeDynamic)
 		if e != nil || got != raw {
 			t.Fatal("modified unrelated supplier")
 		}
 	}
 	for _, raw := range []string{"http://geo.iproyal.com:12321", "http://u:p_lifetime-bad@geo.iproyal.com:12321"} {
-		if _, _, e := prepareOrderProxy(raw, "PH"); e == nil {
+		if _, _, e := prepareOrderProxy(raw, "PH", proxyVendorIPRoyal, proxyModeDynamic); e == nil {
 			t.Fatal("invalid supplier settings accepted")
 		}
 	}
@@ -58,7 +58,7 @@ func TestNonIPRoyalOrderProxyPreservesCredentials(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// New orders must not randomize static or independently managed credentials.
 			for i := 0; i < 2; i++ {
-				got, _, err := prepareOrderProxy(tc.raw, "PH")
+				got, _, err := prepareOrderProxy(tc.raw, "PH", proxyVendorOther, proxyModeDynamic)
 				if err != nil {
 					t.Fatal("ordinary proxy required supplier session options", err)
 				}

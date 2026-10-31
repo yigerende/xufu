@@ -408,20 +408,22 @@ func normalizeProxy(raw string) (string, error) {
 	return u.String(), nil
 }
 func (a *App) resources(w http.ResponseWriter, r *http.Request) {
-	a.list(w, r, `SELECT id,name,kind,country,enabled,weight,capacity,last_status,last_checked,last_ip,last_country,last_latency_ms,quality_result,openai_result,created_at,true AS has_credentials,
+	a.list(w, r, `SELECT id,name,kind,country,vendor,ip_mode,enabled,weight,capacity,last_status,last_checked,last_ip,last_country,last_latency_ms,quality_result,openai_result,created_at,true AS has_credentials,
  COALESCE(id=(SELECT value->>'global_id' FROM settings WHERE key='proxy'),false) AS is_global,
  (SELECT id FROM proxy_checks c WHERE c.resource_id=resources.id AND c.state IN ('queued','running') ORDER BY c.created_at LIMIT 1) AS active_check,
  (SELECT count(*) FROM proxy_leases l WHERE l.resource_id=resources.id AND l.expires_at>now()) AS in_use FROM resources ORDER BY created_at`)
 }
 func (a *App) saveResource(w http.ResponseWriter, r *http.Request) {
 	var v struct {
-		Name     string `json:"name"`
-		Endpoint string `json:"endpoint"`
-		Country  string `json:"country"`
-		Enabled  bool   `json:"enabled"`
-		Weight   int    `json:"weight"`
-		Capacity int    `json:"capacity"`
-		IsGlobal *bool  `json:"is_global"`
+		Name     string  `json:"name"`
+		Endpoint string  `json:"endpoint"`
+		Country  string  `json:"country"`
+		Enabled  bool    `json:"enabled"`
+		Weight   int     `json:"weight"`
+		Capacity int     `json:"capacity"`
+		IsGlobal *bool   `json:"is_global"`
+		Vendor   *string `json:"vendor"`
+		IPMode   *string `json:"ip_mode"`
 	}
 	if !read(w, r, &v) {
 		return
@@ -433,6 +435,14 @@ func (a *App) saveResource(w http.ResponseWriter, r *http.Request) {
 	}
 	v.Name = strings.TrimSpace(v.Name)
 	v.Country = strings.ToUpper(strings.TrimSpace(v.Country))
+	if v.Vendor != nil && !validProxyVendor(*v.Vendor) {
+		fail(w, 400, "请选择 IPRoyal、Cliproxy 或其他厂商")
+		return
+	}
+	if v.IPMode != nil && !validProxyMode(*v.IPMode) {
+		fail(w, 400, "请选择动态或静态代理")
+		return
+	}
 	if !strings.Contains("|PH|US|JP|SG|GB|EG|TR|", "|"+v.Country+"|") {
 		fail(w, 400, "请选择支持的订阅地区")
 		return
@@ -441,7 +451,7 @@ func (a *App) saveResource(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "资源参数无效")
 		return
 	}
-	enc := ""
+	enc, endpoint := "", ""
 	if fresh || v.Endpoint != "" {
 		normalized, e := normalizeProxy(v.Endpoint)
 		if e != nil {
@@ -453,32 +463,46 @@ func (a *App) saveResource(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "加密失败")
 			return
 		}
+		endpoint = normalized
 	}
 	a.transaction(w, r, func(tx pgx.Tx) (any, error) {
 		var e error
 		if _, e = tx.Exec(r.Context(), "SELECT pg_advisory_xact_lock(1886003)"); e != nil {
 			return nil, e
 		}
+		vendor, mode := legacyProxyVendor(endpoint), proxyModeDynamic
+		if v.Vendor != nil {
+			vendor = *v.Vendor
+		}
+		if v.IPMode != nil {
+			mode = *v.IPMode
+		}
 		if !fresh {
-			var previousCountry string
-			if e = tx.QueryRow(r.Context(), "SELECT country FROM resources WHERE id=$1", id).Scan(&previousCountry); e != nil {
+			var previousCountry, previousVendor, previousMode string
+			if e = tx.QueryRow(r.Context(), "SELECT country,vendor,ip_mode FROM resources WHERE id=$1", id).Scan(&previousCountry, &previousVendor, &previousMode); e != nil {
 				if e == pgx.ErrNoRows {
 					return nil, businessError{404, "代理不存在"}
 				}
 				return nil, e
 			}
+			if v.Vendor == nil {
+				vendor = previousVendor
+			}
+			if v.IPMode == nil {
+				mode = previousMode
+			}
 			var active int
 			if e = tx.QueryRow(r.Context(), "SELECT count(*) FROM proxy_leases WHERE resource_id=$1 AND expires_at>now()", id).Scan(&active); e != nil {
 				return nil, e
 			}
-			if active > 0 && (enc != "" || previousCountry != v.Country) {
-				return nil, businessError{409, "代理正在执行任务，暂时不能更换连接凭据或订阅地区"}
+			if active > 0 && (enc != "" || previousCountry != v.Country || previousVendor != vendor || previousMode != mode) {
+				return nil, businessError{409, "代理正在执行任务，暂时不能更换连接凭据、订阅地区、厂商或动态/静态类型"}
 			}
 		}
 		if fresh {
-			_, e = tx.Exec(r.Context(), "INSERT INTO resources(id,name,country,endpoint_enc,enabled,weight,capacity) VALUES($1,$2,$3,$4,$5,$6,$7)", id, v.Name, strings.ToUpper(v.Country), enc, v.Enabled, v.Weight, v.Capacity)
+			_, e = tx.Exec(r.Context(), "INSERT INTO resources(id,name,country,endpoint_enc,enabled,weight,capacity,vendor,ip_mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", id, v.Name, strings.ToUpper(v.Country), enc, v.Enabled, v.Weight, v.Capacity, vendor, mode)
 		} else {
-			tag, err := tx.Exec(r.Context(), "UPDATE resources SET name=$2,country=$3,endpoint_enc=CASE WHEN $4='' THEN endpoint_enc ELSE $4 END,enabled=$5,weight=$6,capacity=$7,last_status=CASE WHEN $4='' THEN last_status ELSE 'untested' END WHERE id=$1", id, v.Name, strings.ToUpper(v.Country), enc, v.Enabled, v.Weight, v.Capacity)
+			tag, err := tx.Exec(r.Context(), "UPDATE resources SET name=$2,country=$3,endpoint_enc=CASE WHEN $4='' THEN endpoint_enc ELSE $4 END,enabled=$5,weight=$6,capacity=$7,vendor=$8,ip_mode=$9,last_status=CASE WHEN $4='' THEN last_status ELSE 'untested' END WHERE id=$1", id, v.Name, strings.ToUpper(v.Country), enc, v.Enabled, v.Weight, v.Capacity, vendor, mode)
 			e = checkRows(tag.RowsAffected(), err)
 		}
 		if e == nil {

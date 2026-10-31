@@ -12,7 +12,7 @@ import (
 
 var ErrProxyUnavailable = errors.New("no available payment proxy")
 
-type paymentProxy struct{ ID, Lease, Endpoint string }
+type paymentProxy struct{ ID, Lease, Endpoint, Vendor, IPMode string }
 
 // All processes share the capacity lock. A task retains one proxy throughout
 // its upstream requests; the absence of a proxy never permits a direct request.
@@ -27,10 +27,10 @@ func (a *App) acquireProxyTx(ctx context.Context, tx pgx.Tx, country string, dur
 	}
 	p := &paymentProxy{Lease: uid()}
 	var enc string
-	e := tx.QueryRow(ctx, `SELECT r.id,r.endpoint_enc FROM resources r
+	e := tx.QueryRow(ctx, `SELECT r.id,r.endpoint_enc,r.vendor,r.ip_mode FROM resources r
  WHERE r.enabled AND r.kind='proxy' AND r.country=$2
  AND (SELECT count(*) FROM proxy_leases l WHERE l.resource_id=r.id AND l.expires_at>now())<r.capacity
- ORDER BY (r.id=$1) DESC,(r.last_status='failed'),random()*r.weight DESC,r.id LIMIT 1`, str(cfg, "default_id"), country).Scan(&p.ID, &enc)
+ ORDER BY (r.id=$1) DESC,(r.last_status='failed'),random()*r.weight DESC,r.id LIMIT 1`, str(cfg, "default_id"), country).Scan(&p.ID, &enc, &p.Vendor, &p.IPMode)
 	if e == pgx.ErrNoRows {
 		return nil, ErrProxyUnavailable
 	}

@@ -14,14 +14,22 @@ import (
 
 var royalSession = regexp.MustCompile(`(?i)_session-[^_]*`)
 var royalLifetime = regexp.MustCompile(`(?i)_lifetime-([^_]+)`)
+var cliproxySession = regexp.MustCompile(`(?i)-sid-[^-]*`)
+var cliproxyLifetime = regexp.MustCompile(`(?i)-t-[^-]*`)
 
-// Only IPRoyal's residential gateway needs generated supplier session options.
-// Other proxies use their configured credentials unchanged. The order binding
+// Dynamic IPRoyal/Cliproxy resources use their supplier's session syntax.
+// Other combinations use their configured credentials unchanged. The order binding
 // and its credential retention deadline are local safeguards, not supplier sessions.
 // Prepare once per order, never per HTTP request or safe retry.
-func prepareOrderProxy(raw, country string) (string, time.Duration, error) {
+func prepareOrderProxy(raw, country, vendor, mode string) (string, time.Duration, error) {
 	normalized, err := normalizeProxy(raw)
 	if err != nil {
+		return "", 0, checkoutFailure("proxy_unavailable", false, false)
+	}
+	if vendor == "" {
+		vendor = legacyProxyVendor(normalized)
+	}
+	if !validProxyVendor(vendor) || !validProxyMode(mode) {
 		return "", 0, checkoutFailure("proxy_unavailable", false, false)
 	}
 	u, err := url.Parse(normalized)
@@ -29,7 +37,27 @@ func prepareOrderProxy(raw, country string) (string, time.Duration, error) {
 		return "", 0, checkoutFailure("proxy_unavailable", false, false)
 	}
 	lifetime := time.Hour
-	if !strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), "geo.iproyal.com") {
+	if vendor == proxyVendorCliproxy && mode == proxyModeDynamic {
+		if u.User == nil || u.User.Username() == "" {
+			return "", 0, checkoutFailure("proxy_unavailable", false, false)
+		}
+		password, ok := u.User.Password()
+		if !ok || password == "" {
+			return "", 0, checkoutFailure("proxy_unavailable", false, false)
+		}
+		username := u.User.Username()
+		// Keep account, region and optional location fields; replace only the
+		// previous session options. One generated sid is frozen on the order.
+		username = cliproxySession.ReplaceAllString(username, "")
+		username = cliproxyLifetime.ReplaceAllString(username, "")
+		if !strings.Contains(strings.ToLower(username), "-region-") {
+			username += "-region-" + strings.ToUpper(country)
+		}
+		username += "-sid-" + uid()[:16] + "-t-15"
+		u.User = url.UserPassword(username, password)
+		return u.String(), 15 * time.Minute, nil
+	}
+	if vendor != proxyVendorIPRoyal || mode != proxyModeDynamic {
 		// Do not append, replace or validate another provider's password options.
 		return normalized, lifetime, nil
 	}
@@ -77,7 +105,7 @@ func (a *App) acquireOrderProxyTx(ctx context.Context, tx pgx.Tx, order, country
 		if e != nil {
 			return nil, e
 		}
-		endpoint, lifetime, e := prepareOrderProxy(p.Endpoint, country)
+		endpoint, lifetime, e := prepareOrderProxy(p.Endpoint, country, p.Vendor, p.IPMode)
 		if e != nil {
 			if _, cleanup := tx.Exec(ctx, "DELETE FROM proxy_leases WHERE id=$1", p.Lease); cleanup != nil {
 				return nil, cleanup

@@ -139,6 +139,10 @@ func New(ctx context.Context, dsn, key, static string, secure bool) (*App, error
 		db.Close()
 		return nil, e
 	}
+	if e = a.migrateProxyVendors(ctx); e != nil {
+		db.Close()
+		return nil, e
+	}
 	if e = a.seed(ctx); e != nil {
 		db.Close()
 		return nil, e

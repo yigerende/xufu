@@ -38,7 +38,7 @@ function tone(s:string){return s==='pass'?'active':s==='fail'?'failed':'review'}
 </script>
 <template>
 <div class="panel proxy-table"><DataTable :rows="rows" :columns="[{key:'name',label:'代理名称 / 用途'},{key:'country',label:'订阅地区'},{key:'capacity',label:'占用 / 容量'},{key:'last_ip',label:'出口 IP / 地区'},{key:'quality',label:'质量评分'},{key:'openai',label:'OpenAI'},{key:'action',label:'操作'}]">
- <template #name="{row}"><b>{{row.name}}</b><div class="proxy-flags"><span v-if="row.is_global" class="badge active"><Globe2 :size="12"/>全局代理</span><span v-if="!row.enabled" class="badge disabled">已停用</span><span v-else-if="!row.is_global" class="muted small">已启用</span></div></template>
+ <template #name="{row}"><b>{{row.name}}</b><small>{{({iproyal:'IPRoyal',cliproxy:'Cliproxy',other:'其他'} as Row)[row.vendor]||'其他'}} · {{row.ip_mode==='static'?'静态':'动态'}}</small><div class="proxy-flags"><span v-if="row.is_global" class="badge active"><Globe2 :size="12"/>全局代理</span><span v-if="!row.enabled" class="badge disabled">已停用</span><span v-else-if="!row.is_global" class="muted small">已启用</span></div></template>
  <template #country="{row}">{{regionLabel(row.country)}}</template>
  <template #capacity="{row}">{{row.in_use}} / {{row.capacity}}</template>
  <template #last_ip="{row}">{{row.last_ip||'—'}}<small>{{row.last_country||'未检测'}} · {{row.last_latency_ms||0}} ms</small><small>{{labels[row.last_status]||row.last_status}} · {{date(row.last_checked)}}</small></template>
