@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "序付 XUPAY 开发者 API",
-    "version": "1.6.4",
-    "description": "支持单独提链与订阅连续办理。订阅办理一次提交，自动付款并按选择保留或关闭续费；付款、订阅生效、续费分别返回业务状态。订阅订单不返回结账链接或内部诊断。服务费使用整数分 R。"
+    "version": "1.6.5",
+    "description": "序付客户 API：查询余额、会员权益和服务费报价，检查账号 Session，创建订阅或结账链接订单，并查询付款、生效和续费结果。仅可访问当前 API 密钥所属账户的数据。平台服务费使用整数分 R，银行卡订阅金额使用对应币种最小单位。"
   },
   "servers": [
     {
@@ -194,13 +194,15 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Product"
-                      }
+                      },
+                      "description": "当前可申请的套餐及服务费信息。"
                     },
                     "membership": {
                       "$ref": "#/components/schemas/Membership"
                     },
                     "unit": {
-                      "const": "cent_R"
+                      "const": "cent_R",
+                      "description": "服务费金额单位，cent_R 表示分 R，100 分 = 1 R。"
                     },
                     "countries": {
                       "type": "array",
@@ -209,24 +211,25 @@
                         "properties": {
                           "code": {
                             "type": "string",
-                            "description": ""
+                            "description": "订阅地区代码，用于 country 参数。"
                           },
                           "name": {
                             "type": "string",
-                            "description": ""
+                            "description": "地区显示名称。"
                           },
                           "currency": {
                             "type": "string",
-                            "description": ""
+                            "description": "该地区的订阅币种代码；实际报价以订单返回为准。"
                           }
                         },
                         "required": [],
                         "additionalProperties": false
-                      }
+                      },
+                      "description": "当前可申请的订阅地区，提交订单时使用其中的 code。"
                     },
                     "payment_connected": {
                       "type": "boolean",
-                      "description": "当前订阅付款功能是否开放；旧付款使用纯协议执行，额外验证时暂停，不启动浏览器；不代表真实支付已验证成功。"
+                      "description": "当前是否支持订阅办理；这是功能可用性提示，不表示某笔订单付款成功。"
                     }
                   },
                   "required": [],
@@ -412,7 +415,8 @@
                       "type": "array",
                       "items": {
                         "type": "object"
-                      }
+                      },
+                      "description": "按当前账户权益计算的套餐服务费。"
                     },
                     "growth": {
                       "type": "array",
@@ -421,11 +425,11 @@
                         "properties": {
                           "id": {
                             "type": "string",
-                            "description": ""
+                            "description": "产生本条消费记录的订单编号。"
                           },
                           "product_name": {
                             "type": "string",
-                            "description": ""
+                            "description": "对应订单的套餐名称。"
                           },
                           "spent": {
                             "type": "integer",
@@ -434,18 +438,22 @@
                           },
                           "updated_at": {
                             "type": "string",
-                            "format": "date-time"
+                            "format": "date-time",
+                            "description": "记录更新时间，RFC 3339 格式。"
                           }
                         },
                         "required": [],
                         "additionalProperties": false
-                      }
+                      },
+                      "description": "最近的会员消费成长记录。"
                     },
                     "unit": {
-                      "const": "cent_R"
+                      "const": "cent_R",
+                      "description": "消费金额单位为分 R，100 分 = 1 R。"
                     },
                     "basis": {
-                      "const": "settled_service_spend"
+                      "const": "settled_service_spend",
+                      "description": "消费成长按已结算服务费计算，不包含银行卡订阅金额。"
                     }
                   },
                   "required": [],
@@ -594,8 +602,8 @@
     },
     "/api/v1/quote": {
       "get": {
-        "summary": "获取当前报价",
-        "description": "创建订单时服务器重新计算并锁定报价。价格快照不会因后续规则调整而改变。",
+        "summary": "获取服务费报价",
+        "description": "返回所选套餐当前的服务费报价，单位为分 R，不是银行卡订阅金额。创建订单时重新核算并保存本单价格；后续价格变化不影响已受理订单。",
         "operationId": "get_quote",
         "security": [
           {
@@ -610,7 +618,8 @@
             "schema": {
               "type": "string"
             },
-            "example": "pro"
+            "example": "pro",
+            "description": "服务目录返回的套餐 id。"
           }
         ],
         "responses": {
@@ -636,7 +645,7 @@
                     },
                     "payment_connected": {
                       "type": "boolean",
-                      "description": "当前订阅付款功能是否开放；旧付款使用纯协议执行，额外验证时暂停，不启动浏览器；不代表真实支付已验证成功。"
+                      "description": "当前是否支持订阅办理；这是功能可用性提示，不表示某笔订单付款成功。"
                     }
                   },
                   "required": [],
@@ -784,8 +793,8 @@
     },
     "/api/v1/session/inspect": {
       "post": {
-        "summary": "识别 Session 账号",
-        "description": "只检查 JSON、账号一致性与期限，不验证签名或在线登录状态。明确指定 workflow=subscription 或 checkout 时，按服务端两段流程配置校验：新提链要求 sessionToken 或受支持的会话 Cookie，可在刷新凭据有效时受理过期 AT；旧提链要求有效 AT。订阅选择新付款时也要求完整 Session，旧提链搭配新付款仍要求 AT 有效。省略 workflow 仅做兼容性的有效 AT 检查，不能替代提链受理校验。建议始终提交获授权账号刚获取的完整 Session。原始 Session 不持久保存。",
+        "summary": "检查 Session 资料",
+        "description": "检查 Session JSON 格式、账号一致性和有效期；成功不代表已在线登录，也不代表订阅已生效。办理订阅传 workflow=subscription，仅生成链接传 workflow=checkout；省略时仅作基础访问令牌检查。请使用获授权账号刚获取的完整 Session，建议包含 sessionToken 或受支持 cookies；缺少所需凭据时按错误提示重新获取。最终受理仍以创建订单接口为准。",
         "operationId": "post_session_inspect",
         "security": [
           {
@@ -920,7 +929,6 @@
                       "checkout",
                       "subscription"
                     ],
-                    "default": "checkout",
                     "description": "订阅办理请选择 subscription，独立提链请选择 checkout；省略仅做基础有效 AT 检查。"
                   }
                 },
@@ -937,7 +945,7 @@
                   "account": {
                     "id": "SESSION_ACCOUNT_ID"
                   },
-                  "accessToken": "REPLACE_WITH_FRESH_SESSION_TOKEN",
+                  "accessToken": "REPLACE_WITH_YOUR_ACCESS_TOKEN",
                   "expires": "2030-01-01T00:00:00Z",
                   "sessionToken": "REPLACE_WITH_YOUR_SESSION_TOKEN"
                 },
@@ -951,7 +959,7 @@
     "/api/v1/wallet/redeem": {
       "post": {
         "summary": "兑换余额",
-        "description": "每张兑换码只能入账一次。并发兑换由事务锁保护；同码重复提交返回 400，不重复入账。",
+        "description": "每张兑换码只能入账一次。同码重复提交返回 400，不重复入账；请求超时先查询余额，再决定是否重试。兑换金额不计入会员消费成长。",
         "operationId": "post_wallet_redeem",
         "security": [
           {
@@ -968,7 +976,8 @@
                   "type": "object",
                   "properties": {
                     "ok": {
-                      "const": true
+                      "const": true,
+                      "description": "true 表示本次兑换成功；可调用余额接口查询最新余额。"
                     },
                     "amount": {
                       "type": "integer",
@@ -1105,8 +1114,8 @@
     },
     "/api/v1/orders": {
       "post": {
-        "summary": "创建方案或准备结账",
-        "description": "workflow=subscription 时一次提交完整 Session、真实银行卡和 keep_renewal，系统自动办理付款、订阅生效核实和续费设置。提链与付款及后续由运营后台独立选择，支持四种新旧组合，默认新提链＋旧付款；不提供客户端选项；已受理订单不随配置切换，重试创建须沿用原 Idempotency-Key。建议始终提交 sessionToken 或受支持的会话 Cookie，缺少当前流程要求的凭据会在受理前返回 400。账单由后台随机选择并按单复用，无需客户提交；不返回结账链接。服务费受理时冻结，付款确认后结算。生效或续费异常保留付款成功，禁止重建订单重复付款。卡资料不持久化。省略 workflow 或设置 workflow=checkout 时仅提链/草稿，prepare=true 只按后台提链选择生成结账链接，不受付款流程选择影响；新流程要求刷新凭据，旧流程支持有效 AT-only。流程在受理时固定，生成链接后即结束，不进入付款；客户端不提供链接类型选项；新旧流程均按后台逐套餐配置选择长链或短链，受理时固定本单类型，新协议提链与付款固定按所选类型执行，不根据上游模式切换；已提交付款按原检查点核实，不重新付款。旧短链订阅网页付款需要 sessionToken 或会话 Cookie，AT-only 可独立提短链或办理长链。订阅整单固定原代理与出口，过期或漂移停止，不自动换会话。",
+        "summary": "创建订阅或结账链接订单",
+        "description": "办理订阅：workflow=subscription，一次提交套餐、订阅地区、完整 Session、获授权银行卡和 keep_renewal。服务受理后自动进行付款、生效核实和续费处理，无需另行调用付款准备或确认接口。服务费受理时冻结，付款确认后结算；银行卡订阅金额与平台服务费分别计算。返回订单编号表示申请已受理，不表示付款成功。仅生成链接：workflow=checkout 或省略，prepare=true 排队生成结账链接，prepare=false 仅保存草稿，均不自动付款、不收取服务费。订阅订单不提供结账链接。提交前取得用户对服务约定和付款的明确同意；只提交本文定义的参数。每个新申请使用唯一 Idempotency-Key；超时重试复用原标识及原申请内容，收到 replayed=true 时继续查询返回的原订单。",
         "operationId": "post_orders",
         "security": [
           {
@@ -1123,7 +1132,8 @@
               "minLength": 8,
               "maxLength": 120
             },
-            "example": "subscription_20261027_001"
+            "example": "subscription_20261027_001",
+            "description": "每个新申请生成唯一标识；超时重试保持原标识和原申请内容，避免重复创建。"
           }
         ],
         "responses": {
@@ -1136,20 +1146,23 @@
                   "properties": {
                     "id": {
                       "type": "string",
-                      "description": ""
+                      "description": "已创建或按幂等键找到的原订单编号。"
                     },
                     "status": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "订单当前状态；queued 仅表示已排队，具体办理结果请查询订单详情。"
                     },
                     "payment_connected": {
                       "type": "boolean",
-                      "description": "当前订阅付款功能是否开放；旧付款使用纯协议执行，额外验证时暂停，不启动浏览器；不代表真实支付已验证成功。"
+                      "description": "当前是否支持订阅办理；这是功能可用性提示，不表示某笔订单付款成功。"
                     },
                     "replayed": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "true 表示返回同一幂等键对应的原订单，没有再次创建。"
                     },
                     "checkout_connected": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "结账链接服务可用性提示，不表示链接已生成或付款成功。"
                     }
                   },
                   "required": [],
@@ -1272,7 +1285,7 @@
                   "account": {
                     "id": "SESSION_ACCOUNT_ID"
                   },
-                  "accessToken": "REPLACE_WITH_FRESH_SESSION_TOKEN",
+                  "accessToken": "REPLACE_WITH_YOUR_ACCESS_TOKEN",
                   "expires": "2030-01-01T00:00:00Z",
                   "sessionToken": "REPLACE_WITH_YOUR_SESSION_TOKEN"
                 },
@@ -1294,7 +1307,7 @@
       },
       "get": {
         "summary": "查询订单列表",
-        "description": "仅返回当前账户最近 200 笔订单。可按邮箱或编号搜索，以及状态筛选。 返回符合 q/status 条件的最近 200 笔订单；列表增加 price_snapshot 和 payment 白名单摘要，原字段保持兼容。上游金额与平台服务费分开，charged_amount 非空才代表已核实实收。",
+        "description": "返回当前账户符合 q/status 条件的最近 200 笔订单，按创建时间倒序；本接口没有翻页参数。payment 是付款摘要，price_snapshot 是创建时的服务费报价。付款金额与服务费分开，实收金额以非空 charged_amount 为准。",
         "operationId": "get_orders",
         "security": [
           {
@@ -1331,7 +1344,8 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Order"
-                      }
+                      },
+                      "description": "当前账户符合筛选条件的订单，按创建时间倒序，最多返回 200 条。"
                     }
                   },
                   "required": [],
@@ -1458,7 +1472,7 @@
     "/api/v1/orders/{id}": {
       "get": {
         "summary": "订单详情与进度",
-        "description": "返回所属订单的业务进度。付款看 payment.state，生效看 order.activation，续费看 order.renewal，不能只凭 order.status 判定全部完成。订阅订单不返回结账链接、内部请求或管理员诊断；不会返回银行卡、会话凭据及账单资料。",
+        "description": "查询当前账户订单。付款成功看 payment.state=succeeded，订阅生效看 order.activation=active，续费关闭看 order.renewal=disabled；kept 表示按用户选择保留自动续费。不要只凭 order.status 判断所有事项完成。仅生成链接的订单可读取 checkout.url；订阅订单不返回该链接。events 是面向客户的办理说明，不能用日志条数判断扣款次数。",
         "operationId": "get_orders_id",
         "security": [
           {
@@ -1635,8 +1649,8 @@
     },
     "/api/v1/orders/{id}/cancel": {
       "post": {
-        "summary": "结束结账准备",
-        "description": "仅撤回未进入付款流程的方案或提链任务。订阅办理及已有付款记录的订单不支持手动取消。",
+        "summary": "撤回未付款的链接任务或草稿",
+        "description": "仅支持尚未进入付款的草稿或链接任务，订单需处于 draft、queued 或 awaiting_payment。订阅办理及已有付款记录的订单不支持此操作。撤回不代表退款，也不会使已经复制的结账链接自动失效。",
         "operationId": "post_orders_id_cancel",
         "security": [
           {
@@ -1663,7 +1677,8 @@
                   "type": "object",
                   "properties": {
                     "ok": {
-                      "const": true
+                      "const": true,
+                      "description": "true 表示撤回成功；此操作不办理银行卡退款或关闭自动续费。"
                     }
                   },
                   "required": [],
@@ -1772,8 +1787,8 @@
     "/api/v1/orders/{id}/payment/prepare": {
       "post": {
         "operationId": "payment_prepare",
-        "summary": "准备付款报价",
-        "description": "仅用于兼容允许付款的历史 checkout 订单；新 link 订单不支持，subscription 已自动办理，不应调用。付款使用订单固定网络会话。只准备报价、不提交扣款；同一订单重试沿用原账单，敏感卡资料不持久化。",
+        "summary": "准备付款报价（兼容旧订单）",
+        "description": "仅用于支持单独付款的历史订单。新建的链接订单不支持站内付款，订阅订单已自动办理，无需调用本接口。本操作只准备报价，不确认扣款；后续查询订单取得 attempt_id、amount、currency 和报价有效期。银行卡资料不持久保存。",
         "security": [
           {
             "BearerKey": []
@@ -1798,7 +1813,8 @@
                 "additionalProperties": false,
                 "properties": {
                   "accepted": {
-                    "const": true
+                    "const": true,
+                    "description": "必须为 true，表示已取得卡片使用授权并同意准备本单付款。"
                   },
                   "card": {
                     "type": "object",
@@ -1806,19 +1822,23 @@
                     "properties": {
                       "number": {
                         "type": "string",
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "获授权使用的银行卡号，12～19 位数字；可包含空格或连字符。"
                       },
                       "month": {
                         "type": "string",
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "到期月份字符串，1～12，例如 \"12\"。"
                       },
                       "year": {
                         "type": "string",
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "到期年份字符串，支持两位或四位，例如 \"30\" 或 \"2030\"；卡片须未过期。"
                       },
                       "cvc": {
                         "type": "string",
-                        "writeOnly": true
+                        "writeOnly": true,
+                        "description": "卡片安全码字符串，3 或 4 位数字；仅用于本次付款，不回显。"
                       }
                     },
                     "required": [
@@ -1826,7 +1846,8 @@
                       "month",
                       "year",
                       "cvc"
-                    ]
+                    ],
+                    "description": "获授权银行卡资料；仅用于本次付款，不回显。子字段必填。"
                   }
                 },
                 "required": [
@@ -1852,7 +1873,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    },
+                    "attempt_id": {
+                      "type": "string",
+                      "description": "付款任务编号。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -1865,7 +1896,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    },
+                    "attempt_id": {
+                      "type": "string",
+                      "description": "付款任务编号。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -1874,19 +1915,79 @@
             }
           },
           "400": {
-            "description": "输入无效"
+            "description": "输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "输入无效"
+                }
+              }
+            }
           },
           "401": {
-            "description": "未登录"
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "未登录"
+                }
+              }
+            }
           },
           "404": {
-            "description": "订单不存在或不属于当前账户"
+            "description": "订单不存在或不属于当前账户",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "订单不存在或不属于当前账户"
+                }
+              }
+            }
           },
           "409": {
-            "description": "状态不符或报价过期"
+            "description": "状态不符或报价过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "状态不符或报价过期"
+                }
+              }
+            }
           },
           "429": {
-            "description": "频率或并发已满"
+            "description": "频率或并发已满",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "频率或并发已满"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "服务暂不可用，先查询原订单，不重复付款",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1894,8 +1995,8 @@
     "/api/v1/orders/{id}/payment/confirm": {
       "post": {
         "operationId": "payment_confirm",
-        "summary": "确认付款金额",
-        "description": "仅用于允许人工确认的历史付款流程；连续订阅自动确认，不需另行调用。必须已获得客户同意，提交当前 attempt_id、amount、currency；重复确认同一任务不再次付款。超时先查订单，未知或成功结果禁止新建订单重付。",
+        "summary": "确认付款金额（兼容旧订单）",
+        "description": "仅适用于需要单独确认报价的历史订单，订阅办理无需调用。取得用户明确同意后，原样提交当前有效报价的 attempt_id、amount 和 currency。重复确认同一任务不会再次付款；请求超时先查询原订单，不重新创建订单付款。",
         "security": [
           {
             "BearerKey": []
@@ -1920,14 +2021,17 @@
                 "additionalProperties": false,
                 "properties": {
                   "accepted": {
-                    "const": true
+                    "const": true,
+                    "description": "必须为 true，表示已确认本单最终报价。"
                   },
                   "attempt_id": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "从原订单 payment.attempt_id 读取，与当前有效报价对应。"
                   },
                   "amount": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 1,
+                    "description": "原订单 payment.amount 的整数值，按对应币种最小单位填写；必须与有效报价一致。"
                   },
                   "currency": {
                     "type": "string",
@@ -1939,7 +2043,8 @@
                       "gbp",
                       "egp",
                       "try"
-                    ]
+                    ],
+                    "description": "原订单 payment.currency 的小写币种代码，必须与有效报价一致。"
                   }
                 },
                 "required": [
@@ -1964,7 +2069,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -1977,7 +2088,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -1986,19 +2103,79 @@
             }
           },
           "400": {
-            "description": "输入无效"
+            "description": "输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "输入无效"
+                }
+              }
+            }
           },
           "401": {
-            "description": "未登录"
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "未登录"
+                }
+              }
+            }
           },
           "404": {
-            "description": "订单不存在或不属于当前账户"
+            "description": "订单不存在或不属于当前账户",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "订单不存在或不属于当前账户"
+                }
+              }
+            }
           },
           "409": {
-            "description": "状态不符或报价过期"
+            "description": "状态不符或报价过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "状态不符或报价过期"
+                }
+              }
+            }
           },
           "429": {
-            "description": "频率或并发已满"
+            "description": "频率或并发已满",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "频率或并发已满"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "服务暂不可用，先查询原订单，不重复付款",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2006,8 +2183,8 @@
     "/api/v1/orders/{id}/payment/check": {
       "post": {
         "operationId": "payment_check",
-        "summary": "核实付款结果",
-        "description": "按原订单绑定的流程核实付款，不新建结账或再次提交银行卡付款，不随后台当前设置切换。旧付款全程协议执行，核实仅查询原交易；遇额外验证暂停，不启动浏览器；新流程可继续原交易待批准、官方验证、订阅生效和续费处理，付款已成功但后续待核实时也可接续。支持自动验证的流程由服务端自动接续，完成后再次核实原付款；官方实际要求交互或超时时保留待核实。须满足原流程的有效代理会话、授权和可恢复记录条件；以 payment.can_check 为准显示核实入口，不返回内部验证链接。",
+        "summary": "核实原订单结果",
+        "description": "对付款结果待核实或等待验证的原订单申请核实。部分已付款订单也可接续生效或续费核实。automatic_running=true 时等待自动处理，不并发调用；can_check 有返回时按该字段判断，未返回时可对 review/action_required 申请核实，最终以接口受理结果为准。返回 accepted=true 仅表示已受理核实，随后查询订单详情。若仍需验证、账号授权已过期或无法继续，请联系服务支持处理原订单；不要重新提交订阅。",
         "security": [
           {
             "BearerKey": []
@@ -2043,7 +2220,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -2056,7 +2239,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean",
+                      "description": "操作已受理，不代表付款或核实已经成功。"
+                    }
+                  }
                 },
                 "example": {
                   "accepted": true
@@ -2065,19 +2254,79 @@
             }
           },
           "400": {
-            "description": "输入无效"
+            "description": "输入无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "输入无效"
+                }
+              }
+            }
           },
           "401": {
-            "description": "未登录"
+            "description": "未登录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "未登录"
+                }
+              }
+            }
           },
           "404": {
-            "description": "订单不存在或不属于当前账户"
+            "description": "订单不存在或不属于当前账户",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "订单不存在或不属于当前账户"
+                }
+              }
+            }
           },
           "409": {
-            "description": "状态不符或报价过期"
+            "description": "状态不符或报价过期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "状态不符或报价过期"
+                }
+              }
+            }
           },
           "429": {
-            "description": "频率或并发已满"
+            "description": "频率或并发已满",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "频率或并发已满"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "服务暂不可用，先查询原订单，不重复付款",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2126,10 +2375,12 @@
         "type": "object",
         "properties": {
           "current": {
-            "$ref": "#/components/schemas/Tier"
+            "$ref": "#/components/schemas/Tier",
+            "description": "当前生效的会员等级。"
           },
           "automatic": {
-            "$ref": "#/components/schemas/Tier"
+            "$ref": "#/components/schemas/Tier",
+            "description": "按累计有效消费计算的会员等级。"
           },
           "next": {
             "anyOf": [
@@ -2139,48 +2390,53 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "下一个可通过消费达到的等级；已达最高等级时为 null。"
           },
           "spent": {
             "type": "integer",
             "format": "int64",
-            "description": "成功订单扣款减去退费后的有效消费"
+            "description": "已结算服务费减去退费后的有效消费，单位分 R；不包含银行卡订阅金额。"
           },
           "remaining": {
             "type": "integer",
             "format": "int64",
-            "description": "距离下一级自动等级"
+            "description": "距离下一自动会员等级所需的消费额，单位分 R。"
           },
           "progress": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 100
+            "maximum": 100,
+            "description": "到下一自动等级的进度百分比。"
           },
           "source": {
             "enum": [
               "automatic",
               "manual"
-            ]
+            ],
+            "description": "automatic 为消费成长等级，manual 为账户指定等级。"
           },
           "until": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "date-time",
+            "description": "指定等级的到期时间；null 表示未设置期限。"
           },
           "fee_override": {
             "type": [
               "integer",
               "null"
             ],
-            "description": "专属单价，非空时优先于等级折扣"
+            "description": "账户专属服务单价，单位分 R；非空时优先于等级折扣。"
           },
           "tiers": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Tier"
-            }
+            },
+            "description": "可用会员等级及对应门槛、折扣。"
           }
         },
         "required": [],
@@ -2196,7 +2452,7 @@
         "properties": {
           "accessToken": {
             "type": "string",
-            "description": "完整访问令牌，不在响应/日志回显；新订阅存在有效刷新凭据时允许 AT 已过期，由服务端尝试刷新。",
+            "description": "账号 Session 中的完整访问令牌；请优先使用最新有效值。检查接口可能接受可刷新的过期资料，但不保证实际办理成功。仅用于授权，不回显。",
             "writeOnly": true
           },
           "user": {
@@ -2204,13 +2460,15 @@
             "properties": {
               "email": {
                 "type": "string",
-                "format": "email"
+                "format": "email",
+                "description": "账号邮箱，使用完整 Session 原值。"
               }
             },
             "required": [
               "email"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Session 中的账号用户资料，必须包含 email。"
           },
           "account": {
             "type": "object",
@@ -2227,52 +2485,58 @@
             "required": [
               "id"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Session 中的会话空间资料，必须包含 id。"
           },
           "expires": {
             "type": "string",
             "format": "date-time",
-            "description": "会话到期时间。旧提链与 AT exp 取较早值；新提链存在刷新凭据时用于其受理期限，不代表在线授权已验证。"
+            "description": "账号 Session 提供的到期时间，使用 RFC 3339 格式。通过格式检查不等于在线授权有效。"
           },
           "sessionToken": {
             "type": "string",
             "writeOnly": true,
             "maxLength": 32768,
-            "description": "建议始终提交的会话刷新凭据；需要刷新授权的办理流程必填（或提供受支持 cookies）。仅短期加密保留，不回显。"
+            "description": "账号的会话凭据，建议随完整 Session 提交；也可提供受支持 cookies。缺少所需凭据时请求将被拒绝。短期加密保留，不回显。"
           },
           "cookies": {
             "type": "string",
             "writeOnly": true,
             "maxLength": 65536,
-            "description": "已有的受支持会话 Cookie 字符串，可替代 sessionToken 提供刷新凭据；仅保留受支持字段，短期加密，不回显。"
+            "description": "账号已有的会话 Cookie 字符串，可代替 sessionToken 提供会话授权；不要填写 API 密钥。短期加密保留，不回显。"
           }
         },
-        "additionalProperties": true
+        "additionalProperties": true,
+        "description": "获授权账号的完整 Session 对象，保留账号原始字段；令牌仅供本次授权，不回显。"
       },
       "SessionInfo": {
         "type": "object",
         "properties": {
           "email": {
             "type": "string",
-            "format": "email"
+            "format": "email",
+            "description": "从 Session 识别的账号邮箱。"
           },
           "account_id": {
             "type": "string",
-            "description": ""
+            "description": "从 Session 识别的账号空间编号。"
           },
           "plan": {
             "type": "string",
-            "description": ""
+            "description": "Session 自带的套餐名称，不代表已在线核实的订阅结果。"
           },
           "expires_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "格式检查使用的授权有效期限，不能据此保证在线授权仍可用。"
           },
           "status": {
-            "const": "format_valid"
+            "const": "format_valid",
+            "description": "format_valid 仅表示格式与必要字段通过检查。"
           },
           "online_verified": {
-            "const": false
+            "const": false,
+            "description": "固定为 false；此接口不进行在线登录验证。"
           }
         },
         "required": [],
@@ -2297,7 +2561,8 @@
               "GB",
               "EG",
               "TR"
-            ]
+            ],
+            "description": "订阅地区代码，请使用 /api/v1/catalog 返回的 countries.code。"
           },
           "seats": {
             "type": "integer",
@@ -2316,14 +2581,14 @@
           },
           "workspace_name": {
             "type": "string",
-            "description": "Team 空间名称，默认 My workspace"
+            "description": "Team 空间名称；留空时使用 My workspace。"
           },
           "premium_seats": {
             "type": "integer",
             "minimum": 1,
             "maximum": 100,
             "default": 1,
-            "description": "Team 高级席位，seats 为普通席位数量"
+            "description": "Team 高级套餐的高级席位数；seats 为普通席位数。"
           },
           "workflow": {
             "type": "string",
@@ -2347,19 +2612,23 @@
             "properties": {
               "number": {
                 "type": "string",
-                "writeOnly": true
+                "writeOnly": true,
+                "description": "获授权使用的银行卡号，12～19 位数字；可包含空格或连字符。"
               },
               "month": {
                 "type": "string",
-                "writeOnly": true
+                "writeOnly": true,
+                "description": "到期月份字符串，1～12，例如 \"12\"。"
               },
               "year": {
                 "type": "string",
-                "writeOnly": true
+                "writeOnly": true,
+                "description": "到期年份字符串，支持两位或四位，例如 \"30\" 或 \"2030\"；卡片须未过期。"
               },
               "cvc": {
                 "type": "string",
-                "writeOnly": true
+                "writeOnly": true,
+                "description": "卡片安全码字符串，3 或 4 位数字；仅用于本次付款，不回显。"
               }
             }
           },
@@ -2383,15 +2652,15 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": ""
+            "description": "订单编号，用于查询详情或申请核实。"
           },
           "product_id": {
             "type": "string",
-            "description": ""
+            "description": "申请时的套餐编号。"
           },
           "product_name": {
             "type": "string",
-            "description": ""
+            "description": "申请时的套餐名称。"
           },
           "email": {
             "type": "string",
@@ -2400,10 +2669,11 @@
           },
           "country": {
             "type": "string",
-            "description": ""
+            "description": "申请的订阅地区代码。"
           },
           "seats": {
-            "type": "integer"
+            "type": "integer",
+            "description": "申请的席位数，个人套餐为 1；Team 为普通席位数。"
           },
           "status": {
             "enum": [
@@ -2421,13 +2691,14 @@
           "fee": {
             "type": "integer",
             "format": "int64",
-            "description": "创建时锁定的服务费报价，草稿不扣款"
+            "description": "本单锁定的服务费报价，单位分 R；不等于已扣费，结算状态看 payment.fee_state。"
           },
           "source": {
             "enum": [
               "web",
               "api"
-            ]
+            ],
+            "description": "订单提交来源：web 为网页，api 为 API。"
           },
           "renewal": {
             "type": "string",
@@ -2443,11 +2714,13 @@
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "订单创建时间，RFC 3339 格式。"
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "订单最近更新时间，RFC 3339 格式。"
           },
           "price_snapshot": {
             "$ref": "#/components/schemas/PriceSnapshot",
@@ -2459,10 +2732,11 @@
               "checkout",
               "subscription"
             ],
-            "description": "新提链或草稿返回 link；subscription 为连续订阅办理；checkout 仅兼容历史订单。"
+            "description": "link 为独立链接任务或草稿；subscription 为自动订阅办理；checkout 为兼容历史订单类型。"
           },
           "keep_renewal": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "本单是否要求保留自动续费；实际处理结果看 renewal。"
           },
           "activation": {
             "type": "string",
@@ -2488,40 +2762,43 @@
           "standard": {
             "type": "integer",
             "format": "int64",
-            "description": "金额单位为分，100 分 = 1 R"
+            "description": "创建时套餐标准服务费，单位分 R。"
           },
           "fee": {
             "type": "integer",
             "format": "int64",
-            "description": "金额单位为分，100 分 = 1 R"
+            "description": "创建时计算的本单服务费，单位分 R。"
           },
           "tier_code": {
             "type": "string",
-            "description": ""
+            "description": "创建订单时的会员等级标识。"
           },
           "tier_name": {
             "type": "string",
-            "description": ""
+            "description": "创建订单时的会员等级名称。"
           },
           "discount": {
-            "type": "integer"
+            "type": "integer",
+            "description": "服务费实付百分比，95 表示减免 5%。"
           },
           "source": {
             "enum": [
               "automatic",
               "manual"
-            ]
+            ],
+            "description": "创建时会员等级来源：automatic 为消费成长等级，manual 为账户指定等级。"
           },
           "fee_override": {
             "type": [
               "integer",
               "null"
-            ]
+            ],
+            "description": "创建时的账户专属服务单价，单位分 R；null 表示未设置。"
           },
           "spent": {
             "type": "integer",
             "format": "int64",
-            "description": "金额单位为分，100 分 = 1 R"
+            "description": "创建时账户累计有效消费，单位分 R。"
           }
         },
         "required": [],
@@ -2540,20 +2817,22 @@
               "properties": {
                 "stage": {
                   "type": "string",
-                  "description": ""
+                  "description": "业务阶段标识，用于配合 message 展示；日志条数不代表付款次数。"
                 },
                 "message": {
                   "type": "string",
-                  "description": "对外业务阶段说明，不含原始内部请求"
+                  "description": "面向客户的办理说明。"
                 },
                 "created_at": {
                   "type": "string",
-                  "format": "date-time"
+                  "format": "date-time",
+                  "description": "进度记录时间，RFC 3339 格式。"
                 }
               },
               "required": [],
               "additionalProperties": false
-            }
+            },
+            "description": "可供客户查看的订单进度记录；记录完成不等于付款或订阅生效。"
           },
           "checkout": {
             "$ref": "#/components/schemas/Checkout"
@@ -2570,36 +2849,37 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": ""
+            "description": "用于创建订单的套餐编号。"
           },
           "name": {
             "type": "string",
-            "description": ""
+            "description": "套餐名称。"
           },
           "description": {
             "type": "string",
-            "description": ""
+            "description": "套餐说明。"
           },
           "fee": {
             "type": "integer",
             "format": "int64",
-            "description": "标准服务费"
+            "description": "标准服务费，单位分 R；不含银行卡订阅金额。"
           },
           "member_fee": {
             "type": "integer",
             "format": "int64",
-            "description": "当前账户实际服务费"
+            "description": "当前账户服务费，单位分 R；创建时重新核算。"
           },
           "tag": {
             "type": "string",
-            "description": ""
+            "description": "套餐展示标签。"
           },
           "features": {
             "type": "array",
             "items": {
               "type": "string",
               "description": ""
-            }
+            },
+            "description": "套餐包含的功能说明。"
           }
         },
         "required": [],
@@ -2611,15 +2891,16 @@
           "balance": {
             "type": "integer",
             "format": "int64",
-            "description": "可用余额"
+            "description": "可用余额，单位分 R。"
           },
           "frozen": {
             "type": "integer",
             "format": "int64",
-            "description": "冻结金额"
+            "description": "冻结服务费，单位分 R。"
           },
           "unit": {
-            "const": "cent_R"
+            "const": "cent_R",
+            "description": "服务费金额单位，cent_R 表示分 R，100 分 = 1 R。"
           },
           "membership": {
             "$ref": "#/components/schemas/Membership"
@@ -2645,11 +2926,12 @@
         "type": "object",
         "properties": {
           "ready": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "是否已有可返回的结账链接。"
           },
           "url": {
             "type": "string",
-            "description": "仅独立提链订单向所属客户返回最终结账链接；新旧流程均按后台逐套餐配置选择长链或短链。历史已保存链接保留展示。连续订阅订单不返回。"
+            "description": "独立链接订单已生成的结账地址；订阅订单不返回。"
           },
           "expires_at": {
             "type": "string",
@@ -2657,22 +2939,25 @@
             "description": "本平台的链接保留期限，不保证上游期限"
           },
           "expired": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "true 表示本平台保留的链接已到期，不能继续获取该链接。"
           },
           "payment_connected": {
             "type": "boolean",
-            "description": "当前订阅付款功能是否开放；旧付款使用纯协议执行，额外验证时暂停，不启动浏览器；不代表真实支付已验证成功。"
+            "description": "此订单是否支持站内付款；独立链接订单为 false。"
           },
           "attempts": {
-            "type": "integer"
+            "type": "integer",
+            "description": "已进行的链接准备尝试次数，不是付款次数。"
           },
           "waiting_message": {
             "type": "string",
-            "description": "等待代理或重试的公开说明"
+            "description": "等待办理或重试的说明。"
           },
           "next_check_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "预计下次准备时间，不保证此时完成。"
           },
           "hidden": {
             "type": "boolean",
@@ -2686,10 +2971,12 @@
         "type": "object",
         "properties": {
           "enabled": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "当前是否可使用该订单的付款功能，不表示付款成功。"
           },
           "attempt_id": {
-            "type": "string"
+            "type": "string",
+            "description": "本次付款任务编号；单独确认报价时须原样提交。"
           },
           "state": {
             "type": "string",
@@ -2711,24 +2998,27 @@
               "integer",
               "null"
             ],
-            "description": "上游币种最小单位，JPY 为整数日元"
+            "description": "最近一次保存的付款报价，单位为币种最小单位；JPY 为整数日元。报价不是实收金额，失败订单可能保留变化前的旧报价。实收金额须查看 charged_amount。初始价与税额明细未单独公开。"
           },
           "currency": {
             "type": "string",
             "description": "上游币种代码，当前付款响应使用小写（如 php、jpy），接入方应不区分大小写。金额采用对应最小单位，JPY 不除以 100。"
           },
           "last4": {
-            "type": "string"
+            "type": "string",
+            "description": "银行卡末四位；不返回完整卡号。"
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "description": "供用户阅读的付款处理说明，不建议按文案做程序分支。"
           },
           "quote_expires_at": {
             "type": [
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "date-time",
+            "description": "已保存报价的到期时间，RFC 3339 格式；null 表示未提供期限。"
           },
           "fee_state": {
             "type": "string",
@@ -2736,7 +3026,8 @@
               "held",
               "released",
               "charged"
-            ]
+            ],
+            "description": "held 服务费已冻结；released 已解冻；charged 已结算。此字段不代表银行卡退款或扣款状态。"
           },
           "charged_amount": {
             "type": [
@@ -2752,21 +3043,26 @@
           },
           "error_code": {
             "type": "string",
-            "description": "平台公开的固定业务原因分类；不含原始上游错误。"
+            "description": "平台公开的固定业务原因分类；不含原始上游错误。amount_changed 表示报价一致性检查未通过，不是银行拒付；结合 payment.state、message 及原交易结果处理，不自动换幂等键重付。"
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "付款状态最近更新时间，RFC 3339 格式。"
           },
           "can_check": {
             "type": "boolean",
-            "description": "当前是否可申请核实原交易或接续付款后的办理；最终仍由接口校验状态、租约、原代理、授权及检查点。"
+            "description": "当前是否可以申请核实或继续处理原订单。缺省时可结合 review/action_required 申请核实，最终以接口校验结果为准。"
+          },
+          "automatic_running": {
+            "type": "boolean",
+            "description": "服务端当前是否有自动办理任务运行。为 true 时等待并查询原单，不并发发起核实；字段缺省不表示交易失败。"
           }
         }
       },
       "PaymentSummary": {
         "type": "object",
-        "description": "列表中的付款摘要；尚无付款或仅提链订单返回空对象。不含付款操作能力、链接、原始错误或内部诊断。",
+        "description": "订单列表中的付款摘要；没有付款记录时为空对象。需要核实能力与完整进度时查询订单详情。",
         "properties": {
           "state": {
             "type": "string",
@@ -2788,7 +3084,7 @@
               "integer",
               "null"
             ],
-            "description": "上游币种最小单位，JPY 为整数日元"
+            "description": "最近一次保存的付款报价，单位为币种最小单位；JPY 为整数日元。报价不是实收金额，失败订单可能保留变化前的旧报价。实收金额须查看 charged_amount。初始价与税额明细未单独公开。"
           },
           "currency": {
             "type": "string",
@@ -2807,7 +3103,8 @@
             "description": "实收金额币种，当前使用小写，接入方应不区分大小写；未取得实收金额时为空字符串。"
           },
           "last4": {
-            "type": "string"
+            "type": "string",
+            "description": "银行卡末四位。"
           },
           "fee_state": {
             "type": "string",
@@ -2815,10 +3112,12 @@
               "held",
               "released",
               "charged"
-            ]
+            ],
+            "description": "平台服务费状态：held 已冻结、released 已解冻、charged 已结算；与银行卡付款状态分开判断。"
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "description": "供用户阅读的处理说明。"
           }
         },
         "additionalProperties": false
